@@ -402,15 +402,13 @@ def parse_args(parser):
         help="Name of the cluster log file to run",
     )
     parser.add_argument("--jobs-per-hour", type=int, default=5, help="Jobs per hour")
+    parser.add_argument("--scheduler", type=str, default="Las", help="Scheduler name (e.g. Fifo, Las, Srtf)")
     parser.add_argument(
         "--start-job-track", type=int, default=3000, help="Start ID of job to track"
     )
 
     parser.add_argument(
         "--end-job-track", type=int, default=4000, help="End ID of job to track"
-    )
-    parser.add_argument(
-        "--scheduler", type=str, default="Fifo", help="Name of the scheduler"
     )
     parser.add_argument(
         "--exp-prefix",
@@ -439,7 +437,7 @@ def launch_server(args) -> grpc.Server:
             np.arange(args.jobs_per_hour, args.jobs_per_hour + 1, 1.0).tolist(),
             (args.start_job_track, args.end_job_track),
             [
-                "Las",
+                args.scheduler,
             ],
             ["Place"],
             ["AcceptAll"],

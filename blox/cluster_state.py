@@ -86,7 +86,7 @@ class ClusterState(object):
                             }
                         )
                         self.gpu_number += 1
-                    self.gpu_df = self.gpu_df.append(gpuID_list)
+                    self.gpu_df = pd.concat([self.gpu_df, pd.DataFrame(gpuID_list)], ignore_index=True)
                     self.node_counter += 1
             except IndexError:
                 break

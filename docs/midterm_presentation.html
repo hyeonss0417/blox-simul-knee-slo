@@ -1,0 +1,1182 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPU Cluster Inference Scheduling</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Noto+Sans+KR:wght@300;400;500;700;900&family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --navy:#0d1b2a;
+  --navy2:#1b2a4a;
+  --navy3:#243b5e;
+  --gold:#c9a227;
+  --gold-a:#9a7a12;
+  --gold-light:#f0e6c0;
+  --white:#ffffff;
+  --off-white:#f7f5f0;
+  --warm-gray:#e8e4dd;
+  --text:#2c2c2c;
+  --text-light:#6b6b6b;
+  --rule:#d4cfc6;
+}
+html{scroll-snap-type:y mandatory;scroll-behavior:smooth}
+body{
+  font-family:'Noto Sans KR','Inter',-apple-system,sans-serif;
+  background:var(--off-white);
+  color:var(--text);
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ── Page / Slide ── */
+.page{
+  min-height:100vh;
+  scroll-snap-align:start;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  position:relative;
+  overflow-x:hidden;
+}
+.page-inner{
+  width:100%;
+  max-width:1200px;
+  padding:80px 64px;
+}
+
+/* ── McKinsey: Assertion Header ── */
+.kicker{
+  font-family:'Inter',sans-serif;
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:5px;
+  text-transform:uppercase;
+  color:var(--gold-a);
+  margin-bottom:16px;
+}
+.assertion{
+  font-family:'Noto Sans KR','Inter',sans-serif;
+  font-size:clamp(28px,3.8vw,48px);
+  font-weight:900;
+  line-height:1.25;
+  color:var(--navy);
+  margin-bottom:8px;
+  max-width:900px;
+}
+.sub-assertion{
+  font-size:17px;
+  color:var(--text-light);
+  font-weight:300;
+  line-height:1.7;
+  max-width:680px;
+  margin-bottom:40px;
+}
+
+/* ── Horizontal Rule (McKinsey signature) ── */
+.hrule{
+  width:100%;height:1px;
+  background:var(--rule);
+  margin:32px 0;
+}
+.hrule-gold{
+  width:64px;height:3px;
+  background:var(--gold);
+  margin-bottom:28px;
+}
+
+/* ── Two-Column / Three-Column ── */
+.cols{display:grid;gap:48px}
+.cols-2{grid-template-columns:1fr 1fr}
+.cols-3{grid-template-columns:1fr 1fr 1fr}
+.cols-23{grid-template-columns:2fr 3fr}
+.cols-32{grid-template-columns:3fr 2fr}
+.cols-13{grid-template-columns:1fr 3fr}
+.cols-31{grid-template-columns:3fr 1fr}
+
+/* ── Exhibit Box ── */
+.exhibit{
+  border:1px solid var(--rule);
+  background:var(--white);
+  padding:32px;
+  overflow-x:auto;
+}
+.exhibit-label{
+  font-family:'Inter',sans-serif;
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:3px;
+  text-transform:uppercase;
+  color:var(--gold-a);
+  margin-bottom:16px;
+}
+.exhibit-title{
+  font-family:'Playfair Display',serif;
+  font-size:18px;
+  font-weight:700;
+  color:var(--navy);
+  margin-bottom:20px;
+}
+
+/* ── Metric Callout ── */
+.metric{text-align:center;padding:24px 16px}
+.metric-val{
+  font-family:'Playfair Display',serif;
+  font-size:42px;
+  font-weight:900;
+  color:var(--navy);
+  line-height:1;
+}
+.metric-unit{
+  font-family:'Inter',sans-serif;
+  font-size:14px;
+  font-weight:400;
+  color:var(--text-light);
+}
+.metric-label{
+  font-size:13px;
+  color:var(--text-light);
+  margin-top:6px;
+}
+
+/* ── Table ── */
+.mck-table{
+  width:100%;
+  border-collapse:collapse;
+  font-size:14px;
+  table-layout:auto;
+}
+.mck-table thead th{
+  text-align:left;
+  font-family:'Inter',sans-serif;
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:2px;
+  text-transform:uppercase;
+  color:var(--text-light);
+  padding:12px 14px;
+  border-bottom:2px solid var(--navy);
+  white-space:nowrap;
+}
+.mck-table tbody td{
+  padding:12px 14px;
+  border-bottom:1px solid var(--warm-gray);
+  vertical-align:top;
+  line-height:1.5;
+  word-break:break-word;
+}
+.mck-table tbody tr:last-child td{border-bottom:none}
+.mck-table .row-ours{
+  background:linear-gradient(90deg,rgba(201,162,39,0.08),transparent);
+}
+.mck-table .row-ours td{font-weight:700;color:var(--navy)}
+.mck-table code{
+  word-break:break-all;
+  overflow-wrap:break-word;
+}
+
+/* ── Pill / Tag ── */
+.pill{
+  display:inline-block;
+  font-family:'Inter','Noto Sans KR',sans-serif;
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:0.5px;
+  padding:4px 10px;
+  border-radius:2px;
+  white-space:nowrap;
+}
+.pill-navy{background:var(--navy);color:var(--white)}
+.pill-gold{background:var(--gold);color:var(--white)}
+.pill-outline{border:1px solid var(--rule);color:var(--text-light)}
+.pill-green{background:#e6f4ea;color:#1a7431}
+.pill-red{background:#fce8e6;color:#c5221f}
+.pill-amber{background:#fef7e0;color:#b06000}
+
+/* ── Sidebar Insight ── */
+.insight-box{
+  border-left:3px solid var(--gold);
+  padding:20px 24px;
+  background:rgba(201,162,39,0.06);
+  margin-top:24px;
+}
+.insight-box .insight-label{
+  font-family:'Inter',sans-serif;
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:3px;
+  text-transform:uppercase;
+  color:var(--gold-a);
+  margin-bottom:8px;
+}
+.insight-box p{
+  font-size:14px;
+  line-height:1.7;
+  color:var(--text);
+}
+
+/* ── Code ── */
+.code{
+  font-family:'JetBrains Mono',monospace;
+  font-size:13px;
+  background:var(--navy);
+  color:#c9d1d9;
+  padding:24px;
+  line-height:1.7;
+  overflow-x:auto;
+  white-space:pre-wrap;
+}
+.code .cm{color:#6b7b8d}
+.code .kw{color:#c9a227}
+.code .fn{color:#79c0ff}
+.code .st{color:#a5d6a7}
+.code .nu{color:#f9a825}
+
+/* ── Bar Chart ── */
+.bars{
+  display:flex;
+  align-items:flex-end;
+  gap:2px;
+  height:200px;
+  padding:0 20px;
+}
+.bar-col{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+}
+.bar-rect{
+  width:100%;
+  max-width:72px;
+  border-radius:2px 2px 0 0;
+  position:relative;
+  transition:height 0.6s ease;
+}
+.bar-rect .val{
+  position:absolute;
+  top:-24px;
+  left:50%;
+  transform:translateX(-50%);
+  font-family:'Inter',sans-serif;
+  font-size:12px;
+  font-weight:700;
+  white-space:nowrap;
+  color:var(--navy);
+}
+.bar-lbl{
+  font-size:12px;
+  font-weight:600;
+  margin-top:8px;
+  color:var(--text-light);
+}
+
+/* ── Progress Bar ── */
+.prog-row{
+  display:flex;
+  align-items:center;
+  gap:16px;
+  padding:10px 0;
+  border-bottom:1px solid var(--warm-gray);
+}
+.prog-row:last-child{border:none}
+.prog-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.prog-dot.done{background:#1a7431}
+.prog-dot.wip{background:var(--gold)}
+.prog-dot.todo{background:var(--rule)}
+.prog-label{flex:1;font-size:14px}
+.prog-status{
+  font-family:'Inter',sans-serif;
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:1px;
+  text-transform:uppercase;
+}
+
+/* ── Timeline ── */
+.tl{display:flex;margin-top:32px;position:relative}
+.tl::before{
+  content:'';
+  position:absolute;
+  top:12px;left:0;right:0;
+  height:2px;
+  background:var(--warm-gray);
+}
+.tl-item{
+  flex:1;
+  position:relative;
+  padding-right:16px;
+}
+.tl-dot{
+  width:12px;height:12px;
+  border-radius:50%;
+  border:2px solid var(--warm-gray);
+  background:var(--off-white);
+  position:relative;
+  z-index:1;
+  margin-bottom:12px;
+}
+.tl-dot.active{border-color:var(--gold);background:var(--gold)}
+.tl-dot.done{border-color:var(--navy);background:var(--navy)}
+.tl-wk{
+  font-family:'Inter',sans-serif;
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:2px;
+  text-transform:uppercase;
+  color:var(--text-light);
+  margin-bottom:4px;
+}
+.tl-title{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:4px}
+.tl-desc{font-size:12px;color:var(--text-light);line-height:1.6}
+
+/* ── Cover Slide ── */
+.cover-page{
+  background:var(--navy);
+  color:var(--white);
+}
+.cover-page .kicker{color:var(--gold)}
+.cover-page .assertion{color:var(--white)}
+
+/* ── Closing ── */
+.closing{background:var(--navy);color:var(--white)}
+
+/* ── Page Number ── */
+.pagenum{
+  position:absolute;
+  bottom:28px;
+  right:64px;
+  font-family:'Inter',sans-serif;
+  font-size:11px;
+  color:var(--rule);
+  letter-spacing:1px;
+}
+.cover-page .pagenum,.closing .pagenum{color:rgba(255,255,255,0.2)}
+
+/* ── Nav ── */
+.nav{
+  position:fixed;right:24px;top:50%;transform:translateY(-50%);
+  display:flex;flex-direction:column;gap:8px;z-index:99;
+}
+.nav a{
+  width:8px;height:8px;border-radius:50%;
+  background:var(--rule);display:block;
+  transition:all 0.3s;
+}
+.nav a.on{background:var(--gold);transform:scale(1.4)}
+
+/* ── Responsive ── */
+@media(max-width:900px){
+  .cols-2,.cols-3,.cols-23,.cols-32,.cols-13,.cols-31{grid-template-columns:1fr}
+  .page-inner{padding:48px 24px}
+  .nav{display:none}
+}
+</style>
+</head>
+<body>
+
+<nav class="nav" id="nav"></nav>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- 00  COVER -->
+<!-- ═══════════════════════════════════════ -->
+<section class="page cover-page" id="s0">
+  <div class="page-inner" style="display:flex;flex-direction:column;justify-content:center;min-height:80vh;">
+    <div class="kicker" style="color:var(--gold);">중간 발표 &mdash; 2026년 4월</div>
+    <div style="height:16px"></div>
+    <div class="assertion" style="font-size:clamp(32px,4.5vw,58px);max-width:100%;color:var(--white);">
+      GPU 클러스터 추론 워크로드를 위한<br>
+      <span style="color:var(--gold);">스케줄링 및 배치 정책</span> 공동 최적화
+    </div>
+    <div style="height:12px"></div>
+    <div style="font-size:15px;color:rgba(255,255,255,0.45);line-height:1.8;max-width:640px;">
+      추론 지연시간 SLO 준수와 GPU 활용률 극대화를 위한 통합 정책 설계
+    </div>
+    <div style="height:32px"></div>
+    <div style="width:100px;height:2px;background:var(--gold);"></div>
+    <div style="height:28px"></div>
+    <div style="font-size:15px;color:rgba(255,255,255,0.72);line-height:2;">
+      윤영준 &nbsp;&middot;&nbsp; 전현성 &nbsp;&middot;&nbsp; 박준열 &nbsp;&middot;&nbsp; 부광민
+    </div>
+    <div style="font-size:13px;color:rgba(255,255,255,0.4);margin-top:4px;">
+      젠슨황팀 &nbsp;&middot;&nbsp; 컴퓨터종합설계
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- 01  EXECUTIVE SUMMARY -->
+<!-- ═══════════════════════════════════════ -->
+<section class="page" id="s1">
+  <div class="page-inner">
+    <div class="kicker">Executive Summary</div>
+    <div class="assertion">기존 GPU 스케줄러는 추론 SLO를 체계적으로 위반하며, 비대칭 스코어링이 이를 해결한다</div>
+    <div class="sub-assertion">학습(training)에 최적화된 기존 정책을 추론(inference)에 그대로 적용하면, 응답 시간 보장(SLO)이 무너진다. SLO 마감일 기반의 비대칭 가중치로 긴급 작업을 즉시 처리한다.</div>
+
+    <div class="hrule"></div>
+
+    <div class="cols cols-3">
+      <div>
+        <div class="hrule-gold"></div>
+        <div style="font-size:15px;font-weight:700;color:var(--navy);margin-bottom:8px">문제</div>
+        <p style="font-size:14px;color:var(--text-light);line-height:1.8">
+          추론은 짧은 실행시간과 엄격한 SLO를 요구하나, FIFO/SRTF/LAS는 "언제까지 끝나야 하는가"를 전혀 고려하지 않는다.
+        </p>
+      </div>
+      <div>
+        <div class="hrule-gold"></div>
+        <div style="font-size:15px;font-weight:700;color:var(--navy);margin-bottom:8px">접근</div>
+        <p style="font-size:14px;color:var(--text-light);line-height:1.8">
+          SLO 마감까지의 여유(slack)를 비대칭 스코어링한다. 위반 임박 시 10× 가중치로 즉시 우선 실행하고, 배치 정책과 공동 최적화한다.
+        </p>
+      </div>
+      <div>
+        <div class="hrule-gold"></div>
+        <div style="font-size:15px;font-weight:700;color:var(--navy);margin-bottom:8px">검증</div>
+        <p style="font-size:14px;color:var(--text-light);line-height:1.8">
+          Blox 시뮬레이터 위에 4종 스케줄러를 구현하고, 실제 Philly Trace(117K jobs) 고부하 환경에서 SloScoring이 FIFO 대비 JCT 62% 감소를 달성했다.
+        </p>
+      </div>
+    </div>
+
+    <div style="margin-top:40px;display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule);">
+      <div class="metric" style="background:var(--white)">
+        <div class="metric-val">4</div>
+        <div class="metric-label">스케줄링 정책 구현</div>
+      </div>
+      <div class="metric" style="background:var(--white)">
+        <div class="metric-val">117K</div>
+        <div class="metric-label">실제 Philly Trace 작업</div>
+      </div>
+      <div class="metric" style="background:var(--white)">
+        <div class="metric-val">10×</div>
+        <div class="metric-label">SLO 위반 가중치 (α/β)</div>
+      </div>
+      <div class="metric" style="background:var(--white)">
+        <div class="metric-val">62<span class="metric-unit">%↓</span></div>
+        <div class="metric-label">JCT 감소 (vs FIFO)</div>
+      </div>
+    </div>
+  </div>
+  <div class="pagenum">01</div>
+</section>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- 02  PROBLEM -->
+<!-- ═══════════════════════════════════════ -->
+<section class="page" id="s2">
+  <div class="page-inner">
+    <div class="kicker">Problem Definition</div>
+    <div class="assertion">추론과 학습은 근본적으로 다른 워크로드이다</div>
+    <div class="sub-assertion">같은 GPU 클러스터 위에서 돌아가지만, 요구하는 것은 정반대다.</div>
+
+    <div class="exhibit">
+      <div class="exhibit-label">Exhibit 1</div>
+      <div class="exhibit-title">학습 vs 추론 워크로드 비교</div>
+      <table class="mck-table">
+        <thead>
+          <tr><th>특성</th><th>학습 (Training)</th><th>추론 (Inference)</th><th>시사점</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="font-weight:700">실행 시간</td>
+            <td>수 시간 ~ 수 일</td>
+            <td style="font-weight:600;color:var(--navy)">수 초 ~ 수 분</td>
+            <td><span class="pill pill-red">스케줄링 빈도 ↑↑</span></td>
+          </tr>
+          <tr>
+            <td style="font-weight:700">도착 패턴</td>
+            <td>소수의 대규모 작업</td>
+            <td style="font-weight:600;color:var(--navy)">다수의 소규모 작업</td>
+            <td><span class="pill pill-red">큐 경쟁 심화</span></td>
+          </tr>
+          <tr>
+            <td style="font-weight:700">핵심 지표</td>
+            <td>총 완료 시간 (JCT)</td>
+            <td style="font-weight:600;color:var(--navy)">응답 시간 보장 (SLO)</td>
+            <td><span class="pill pill-red">마감 시한 개념 필요</span></td>
+          </tr>
+          <tr>
+            <td style="font-weight:700">실패 비용</td>
+            <td>재학습 (체크포인트 복구)</td>
+            <td style="font-weight:600;color:var(--navy)">사용자 이탈, SLA 위반</td>
+            <td><span class="pill pill-red">즉각 비즈니스 영향</span></td>
+          </tr>
+          <tr>
+            <td style="font-weight:700">선점 가능성</td>
+            <td>가능 (체크포인트 저장)</td>
+            <td style="font-weight:600;color:var(--navy)">불가 (응답 소실)</td>
+            <td><span class="pill pill-red">선점 기반 스케줄링 불가</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="insight-box">
+      <div class="insight-label">So What</div>
+      <p>학습용으로 설계된 FIFO, SRTF, LAS는 <strong>"이 작업이 언제까지 끝나야 하는가"를 전혀 고려하지 않는다.</strong> 추론 워크로드에는 SLO 마감 시한을 직접 반영하는 새로운 스케줄링 기법이 필요하다.</p>
+    </div>
+  </div>
+  <div class="pagenum">02</div>
+</section>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- 03  BASELINE LIMITS -->
+<!-- ═══════════════════════════════════════ -->
+<section class="page" id="s3">
+  <div class="page-inner">
+    <div class="kicker">Baseline Analysis</div>
+    <div class="assertion">기존 세 정책 모두 SLO 개념이 부재하다</div>
+    <div class="sub-assertion">각 정책은 고유한 장점이 있으나, 추론의 핵심 요구인 "마감 준수"를 충족하지 못한다.</div>
+
+    <div class="cols cols-3" style="gap:24px">
+      <div class="exhibit" style="border-top:3px solid var(--navy);">
+        <div style="font-family:'Playfair Display',serif;font-size:28px;font-weight:900;color:var(--navy);margin-bottom:4px;">FIFO</div>
+        <div style="font-size:13px;color:var(--text-light);margin-bottom:16px;">First-In First-Out</div>
+        <div class="hrule" style="margin:12px 0"></div>
+        <div style="font-size:14px;line-height:1.8;color:var(--text);margin-bottom:16px;">
+          먼저 제출된 작업을 먼저 실행한다. 구현이 간단하고 공정하다.
+        </div>
+        <div style="font-size:13px;padding:12px;background:var(--off-white);line-height:1.7;font-family:'JetBrains Mono',monospace;color:var(--text-light)">
+          A(10hr) &rarr; B(1min) &rarr; C(30s)<br>
+          B, C는 <span style="color:#c5221f;font-weight:600">10시간 대기</span>
+        </div>
+        <div style="margin-top:12px;">
+          <span class="pill pill-red">Head-of-Line Blocking</span>
+        </div>
+      </div>
+
+      <div class="exhibit" style="border-top:3px solid var(--navy);">
+        <div style="font-family:'Playfair Display',serif;font-size:28px;font-weight:900;color:var(--navy);margin-bottom:4px;">SRTF</div>
+        <div style="font-size:13px;color:var(--text-light);margin-bottom:16px;">Shortest Remaining Time First</div>
+        <div class="hrule" style="margin:12px 0"></div>
+        <div style="font-size:14px;line-height:1.8;color:var(--text);margin-bottom:16px;">
+          남은 시간이 가장 짧은 작업부터 실행. 이론적으로 평균 JCT 최적해.
+        </div>
+        <div style="font-size:13px;padding:12px;background:var(--off-white);line-height:1.7;color:var(--text-light)">
+          실제 환경에서는 남은 시간을<br>
+          <span style="color:#c5221f;font-weight:600">미리 알 수 없으며</span>,<br>긴 작업이 무한히 밀린다
+        </div>
+        <div style="margin-top:12px;">
+          <span class="pill pill-outline">Oracle Baseline</span>
+          <span class="pill pill-red">기아 문제</span>
+        </div>
+      </div>
+
+      <div class="exhibit" style="border-top:3px solid var(--navy);">
+        <div style="font-family:'Playfair Display',serif;font-size:28px;font-weight:900;color:var(--navy);margin-bottom:4px;">LAS</div>
+        <div style="font-size:13px;color:var(--text-light);margin-bottom:16px;">Least Attained Service</div>
+        <div class="hrule" style="margin:12px 0"></div>
+        <div style="font-size:14px;line-height:1.8;color:var(--text);margin-bottom:16px;">
+          가장 적게 서비스받은 작업 우선. 실행 시간을 몰라도 적용 가능.
+        </div>
+        <div style="font-size:13px;padding:12px;background:var(--off-white);line-height:1.7;color:var(--text-light)">
+          짧은 작업이 자연히 우선 처리<br>
+          하지만 <span style="color:#c5221f;font-weight:600">SLO 마감 개념 없음</span>
+        </div>
+        <div style="margin-top:12px;">
+          <span class="pill pill-amber">SLO 무관</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="insight-box">
+      <div class="insight-label">Gap</div>
+      <p>세 정책 모두 <strong>작업의 긴급도(urgency)</strong>를 판단하지 못한다. 추론 환경에서는 "아직 여유 있는 작업"과 "곧 마감인 작업"을 구분하는 메커니즘이 필수적이다.</p>
+    </div>
+  </div>
+  <div class="pagenum">03</div>
+</section>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- 04  RELATED WORK -->
+<!-- ═══════════════════════════════════════ -->
+<section class="page" id="s4">
+  <div class="page-inner">
+    <div class="kicker">Literature Review</div>
+    <div class="assertion">기존 스케줄러는 추론 SLO와 배치를 동시에 최적화하지 못한다</div>
+    <div class="sub-assertion">학습 중심 스케줄러는 SLO 자체가 부재하고, 추론 서빙 시스템은 클러스터 수준 배치 공동 최적화가 없다.</div>
+
+    <div class="exhibit">
+      <div class="exhibit-label">Exhibit 2</div>
+      <div class="exhibit-title">관련 연구 비교 분석</div>
+      <table class="mck-table">
+        <thead>
+          <tr>
+            <th>논문</th>
+            <th>스케줄링</th>
+            <th>배치</th>
+            <th>대상</th>
+            <th>핵심 한계</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="5" style="font-size:10px;font-weight:700;letter-spacing:2px;color:var(--text-light);text-transform:uppercase;padding:8px 14px;background:var(--off-white)">학습 중심 스케줄러</td></tr>
+          <tr>
+            <td><strong>Tiresias</strong> <span class="pill pill-outline">NSDI'19</span></td>
+            <td>LAS + 2D 우선순위</td>
+            <td>Consolidated</td>
+            <td>Training</td>
+            <td>SLO 개념 부재</td>
+          </tr>
+          <tr>
+            <td><strong>Pollux</strong> <span class="pill pill-outline">OSDI'21</span></td>
+            <td>Goodput 적응형</td>
+            <td>배치 크기 공동 조정</td>
+            <td>Training</td>
+            <td>SLO 개념 부재</td>
+          </tr>
+          <tr>
+            <td><strong>Gavel</strong> <span class="pill pill-outline">OSDI'20</span></td>
+            <td>공정성 기반</td>
+            <td>Heterogeneity-aware</td>
+            <td>Training</td>
+            <td>추론 특화 아님</td>
+          </tr>
+          <tr><td colspan="5" style="font-size:10px;font-weight:700;letter-spacing:2px;color:var(--text-light);text-transform:uppercase;padding:8px 14px;background:var(--off-white)">추론 서빙 시스템</td></tr>
+          <tr>
+            <td><strong>Clockwork</strong> <span class="pill pill-outline">OSDI'20</span></td>
+            <td>예측 기반 SLO</td>
+            <td>단일 모델</td>
+            <td>Inference</td>
+            <td>클러스터 배치 미지원</td>
+          </tr>
+          <tr>
+            <td><strong>Shepherd</strong> <span class="pill pill-outline">OSDI'23</span></td>
+            <td>SLO-aware 서빙</td>
+            <td>모델 레벨</td>
+            <td>Inference</td>
+            <td>배치 공동 최적화 없음</td>
+          </tr>
+          <tr><td colspan="5" style="font-size:10px;font-weight:700;letter-spacing:2px;color:var(--text-light);text-transform:uppercase;padding:8px 14px;background:var(--off-white)">프레임워크</td></tr>
+          <tr>
+            <td><strong>Blox</strong> <span class="pill pill-outline">EuroSys'24</span></td>
+            <td>모듈러 프레임워크</td>
+            <td>교체 가능</td>
+            <td>Training</td>
+            <td>정책 미제안, 추론 미검증</td>
+          </tr>
+          <tr class="row-ours">
+            <td><strong>본 연구</strong> <span class="pill pill-gold">Ours</span></td>
+            <td>비대칭 SLO 스코어링</td>
+            <td>부하 인식형</td>
+            <td><strong>Inference</strong></td>
+            <td>단일 클러스터 가정</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="insight-box">
+      <div class="insight-label">Our Contribution</div>
+      <p>학습 중심 스케줄러에는 SLO가 부재하고, 추론 서빙 시스템에는 클러스터 수준 배치 최적화가 없다. 본 연구는 <strong>SLO 마감일을 스케줄링에 직접 반영</strong>하면서 <strong>배치 정책과 공동 최적화</strong>하는 최초의 추론 특화 연구다.</p>
+    </div>
+  </div>
+  <div class="pagenum">04</div>
+</section>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- 05  PROPOSED METHOD -->
+<!-- ═══════════════════════════════════════ -->
+<section class="page" id="s5">
+  <div class="page-inner">
+    <div class="kicker">Proposed Method</div>
+    <div class="assertion">위반 임박 시 급격히, 여유 시 완만하게 &mdash; 비대칭이 핵심이다</div>
+    <div class="sub-assertion">SLO 마감까지의 여유(slack)를 비대칭 함수로 스코어링하여, 긴급 작업을 즉시 처리한다.</div>
+
+    <div class="cols cols-2">
+      <div>
+        <div class="exhibit" style="height:100%">
+          <div class="exhibit-label">Core Algorithm</div>
+          <div class="exhibit-title">비대칭 스코어링 함수</div>
+
+          <div style="font-size:14px;line-height:2;color:var(--text);">
+            <div style="margin-bottom:12px;padding:10px 14px;background:var(--off-white);font-size:13px;line-height:1.7;">
+              <strong style="color:var(--navy);">Slack이란?</strong> 작업이 SLO 마감까지 남은 여유 시간.<br>
+              양수 = 여유 있음, <span style="color:#c5221f;font-weight:600">음수 = SLO 위반 임박</span><br>
+              <span style="font-size:12px;color:var(--text-light);">† SLO deadline = 예상 완료 시간 × 2.0</span>
+            </div>
+            <div style="margin-bottom:16px">
+              <strong>1. Slack 계산</strong><br>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--navy);">
+                slack = deadline &minus; (now + remaining)
+              </span>
+            </div>
+
+            <div style="margin-bottom:16px">
+              <strong>2. 비대칭 스코어링</strong><br>
+              <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 16px;margin-top:8px;font-family:'JetBrains Mono',monospace;font-size:13px;">
+                <span style="color:#c5221f;">slack &lt; 0</span>
+                <span>score = <strong>&minus;10.0</strong> &times; |slack|</span>
+                <span style="color:#1a7431;">slack &ge; 0</span>
+                <span>score = &nbsp;&nbsp;<strong>1.0</strong> &times; &nbsp;slack</span>
+              </div>
+            </div>
+
+            <div>
+              <strong>3. 실행 순서</strong><br>
+              score가 <span style="color:#c5221f;font-weight:600;">낮을수록</span> 먼저 실행
+            </div>
+          </div>
+
+          <div class="hrule"></div>
+          <div style="font-size:13px;color:var(--text-light);line-height:1.7;">
+            <strong style="color:var(--navy)">&alpha; = 10.0</strong> &nbsp;위반 페널티 (급경사)<br>
+            <strong style="color:var(--navy)">&beta; &nbsp;= 1.0</strong> &nbsp;여유 보상 (완경사)<br>
+            <strong style="color:var(--gold)">&alpha; >> &beta;</strong> &nbsp;이 비대칭이 SLO 보호의 핵심
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="exhibit" style="height:100%">
+          <div class="exhibit-label">Exhibit 3</div>
+          <div class="exhibit-title">스코어링 함수 시각화</div>
+          <svg viewBox="0 0 400 300" style="width:100%;height:auto;display:block;margin:0 auto;">
+            <!-- Grid -->
+            <line x1="60" y1="30" x2="60" y2="260" stroke="#e8e4dd" stroke-width="1"/>
+            <line x1="60" y1="150" x2="380" y2="150" stroke="#d4cfc6" stroke-width="1.5"/>
+            <line x1="200" y1="30" x2="200" y2="260" stroke="#d4cfc6" stroke-width="1.5"/>
+            <!-- Y grid lines -->
+            <line x1="60" y1="70" x2="380" y2="70" stroke="#f0ece5" stroke-width="0.5"/>
+            <line x1="60" y1="110" x2="380" y2="110" stroke="#f0ece5" stroke-width="0.5"/>
+            <line x1="60" y1="190" x2="380" y2="190" stroke="#f0ece5" stroke-width="0.5"/>
+            <line x1="60" y1="230" x2="380" y2="230" stroke="#f0ece5" stroke-width="0.5"/>
+            <!-- Axis labels -->
+            <text x="385" y="155" fill="#6b6b6b" font-size="11" font-family="Inter" font-weight="500">slack</text>
+            <text x="44" y="28" fill="#6b6b6b" font-size="11" font-family="Inter" font-weight="500">score</text>
+            <text x="280" y="168" fill="#1a7431" font-size="10" font-family="Inter">+ 여유</text>
+            <text x="100" y="168" fill="#c5221f" font-size="10" font-family="Inter">&minus; 위반 임박</text>
+            <!-- Positive: gentle green slope -->
+            <line x1="200" y1="150" x2="370" y2="108" stroke="#1a7431" stroke-width="2.5" stroke-linecap="round"/>
+            <!-- Negative: steep red slope -->
+            <line x1="200" y1="150" x2="80" y2="255" stroke="#c5221f" stroke-width="2.5" stroke-linecap="round"/>
+            <!-- Labels on lines -->
+            <text x="290" y="100" fill="#1a7431" font-size="11" font-family="Noto Sans KR" font-weight="700">&beta; = 1.0</text>
+            <text x="290" y="114" fill="#1a7431" font-size="10" font-family="Noto Sans KR">완만한 증가</text>
+            <text x="65" y="250" fill="#c5221f" font-size="11" font-family="Noto Sans KR" font-weight="700">&alpha; = 10.0</text>
+            <text x="65" y="264" fill="#c5221f" font-size="10" font-family="Noto Sans KR">급격한 하락</text>
+            <!-- Origin dot -->
+            <circle cx="200" cy="150" r="5" fill="var(--gold)"/>
+            <text x="206" y="180" fill="var(--gold)" font-size="10" font-family="Inter" font-weight="700">DEADLINE</text>
+            <!-- Shading - danger zone -->
+            <rect x="60" y="150" width="140" height="110" fill="#c5221f" opacity="0.04"/>
+          </svg>
+
+          <div style="text-align:center;font-size:13px;color:var(--text-light);margin-top:8px;">
+            <span style="display:inline-block;width:10px;height:10px;background:#c5221f;border-radius:1px;vertical-align:middle;margin-right:4px;"></span> 위험 구간: 10배 가중치로 즉시 우선 실행 &nbsp;&nbsp;
+            <span style="display:inline-block;width:10px;height:10px;background:#1a7431;border-radius:1px;vertical-align:middle;margin-right:4px;"></span> 안전 구간: 완만하게 대기
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="pagenum">05</div>
+</section>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- 06  ARCHITECTURE -->
+<!-- ═══════════════════════════════════════ -->
+<section class="page" id="s6">
+  <div class="page-inner">
+    <div class="kicker">System Design</div>
+    <div class="assertion">SLO 스코어링과 부하 인식 배치가 파이프라인으로 연동된다</div>
+    <div class="sub-assertion">스케줄러가 SLO 기반 우선순위를 결정하면, 배치 정책이 GPU 부하를 고려하여 할당한다.</div>
+
+    <div class="exhibit">
+      <div class="exhibit-label">Exhibit 4</div>
+      <div class="exhibit-title">파이프라인 아키텍처</div>
+
+      <div style="display:flex;align-items:center;justify-content:center;gap:0;flex-wrap:wrap;padding:32px 0;">
+        <div style="text-align:center;padding:20px 32px;background:var(--off-white);border:1px solid var(--rule);">
+          <div style="font-size:11px;color:var(--text-light);letter-spacing:1px;text-transform:uppercase;">Input</div>
+          <div style="font-size:16px;font-weight:700;color:var(--navy);margin-top:4px;">작업 큐</div>
+        </div>
+        <div style="padding:0 8px;color:var(--text-light);font-size:12px;text-align:center;line-height:1.3;">
+          <div style="font-size:22px;color:var(--rule);">&rarr;</div>
+          <div style="font-size:9px;color:var(--text-light);">작업 메타</div>
+        </div>
+        <div style="text-align:center;padding:20px 32px;background:var(--navy);color:var(--white);border-radius:2px;">
+          <div style="font-size:11px;opacity:0.6;letter-spacing:1px;text-transform:uppercase;">Module 1</div>
+          <div style="font-size:16px;font-weight:700;margin-top:4px;">SLO 스코어링</div>
+          <div style="font-size:12px;opacity:0.5;margin-top:4px;">비대칭 우선순위</div>
+        </div>
+        <div style="padding:0 8px;color:var(--text-light);font-size:12px;text-align:center;line-height:1.3;">
+          <div style="font-size:22px;color:var(--rule);">&rarr;</div>
+          <div style="font-size:9px;color:var(--text-light);">우선순위</div>
+        </div>
+        <div style="text-align:center;padding:20px 32px;background:var(--gold);color:var(--white);border-radius:2px;">
+          <div style="font-size:11px;opacity:0.8;letter-spacing:1px;text-transform:uppercase;">Module 2</div>
+          <div style="font-size:16px;font-weight:700;margin-top:4px;">부하 인식 배치</div>
+          <div style="font-size:12px;opacity:0.7;margin-top:4px;">GPU 부하 균등</div>
+        </div>
+        <div style="padding:0 8px;color:var(--text-light);font-size:12px;text-align:center;line-height:1.3;">
+          <div style="font-size:22px;color:var(--rule);">&rarr;</div>
+          <div style="font-size:9px;color:var(--text-light);">배치 결정</div>
+        </div>
+        <div style="text-align:center;padding:20px 32px;background:var(--off-white);border:1px solid var(--rule);">
+          <div style="font-size:11px;color:var(--text-light);letter-spacing:1px;text-transform:uppercase;">Output</div>
+          <div style="font-size:16px;font-weight:700;color:var(--navy);margin-top:4px;">GPU 클러스터</div>
+          <div style="font-size:12px;color:var(--text-light);margin-top:4px;">128 GPUs</div>
+        </div>
+      </div>
+
+      <div style="text-align:center;border-top:1px dashed var(--rule);padding-top:20px;">
+        <div style="display:inline-block;padding:12px 24px;background:var(--off-white);border:1px dashed var(--rule);font-size:13px;opacity:0.7;">
+          <strong style="color:var(--text-light);">Module 3: ML 기반 JCT 예측</strong> <span class="pill pill-amber" style="margin-left:8px;">향후 연구</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:32px;display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule);">
+      <div class="metric" style="background:var(--white)"><div class="metric-val">32</div><div class="metric-label">노드</div></div>
+      <div class="metric" style="background:var(--white)"><div class="metric-val">4</div><div class="metric-label">GPU / 노드</div></div>
+      <div class="metric" style="background:var(--white)"><div class="metric-val">300<span class="metric-unit">s</span></div><div class="metric-label">라운드 주기</div></div>
+      <div class="metric" style="background:var(--white)"><div class="metric-val">gRPC</div><div class="metric-label">통신 프로토콜</div></div>
+    </div>
+  </div>
+  <div class="pagenum">06</div>
+</section>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- 07  IMPLEMENTATION -->
+<!-- ═══════════════════════════════════════ -->
+<section class="page" id="s7">
+  <div class="page-inner">
+    <div class="kicker">Implementation</div>
+    <div class="assertion">Blox 위에 커스텀 스케줄러를 구현하고 베이스라인 3종을 재현했다</div>
+
+    <div class="cols cols-2" style="gap:32px">
+      <div>
+        <div class="exhibit" style="padding:0;overflow:hidden;">
+          <div style="padding:20px 24px;border-bottom:1px solid var(--rule);">
+            <div class="exhibit-label" style="margin-bottom:4px">Project Structure</div>
+          </div>
+          <div class="code" style="border-radius:0;font-size:12px;">
+<span class="cm"># 시뮬레이션 실행</span>
+simulator_simple.py
+run_scheduler.py          <span class="st"># [신규]</span>
+
+<span class="cm"># 스케줄링 정책</span>
+schedulers/
+  fifo.py
+  las.py
+  srtf.py
+  <span class="kw">slo_scoring.py</span>            <span class="st"># [신규]</span>
+
+<span class="cm"># 실험 도구</span>
+generate_synthetic_trace.py <span class="st"># [신규]</span>
+plot_results.py             <span class="st"># [신규]</span>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="exhibit">
+          <div class="exhibit-label">Core Implementation</div>
+          <div class="exhibit-title">SloScoring 핵심 코드</div>
+          <div class="code" style="font-size:12px;">
+<span class="kw">class</span> <span class="fn">SloScoring</span>(SchedulingPolicy):
+  alpha = <span class="nu">10.0</span>  <span class="cm"># SLO 위반 가중치</span>
+  beta  = <span class="nu">1.0</span>   <span class="cm"># 여유 가중치</span>
+
+  <span class="kw">def</span> <span class="fn">schedule</span>(self, job_dict, ...):
+    <span class="kw">for</span> job <span class="kw">in</span> job_dict.values():
+      deadline = job[<span class="st">"submit_time"</span>] + <span class="nu">2.0</span> * job[<span class="st">"duration"</span>]
+      slack = deadline - (now + job[<span class="st">"remaining"</span>])
+      <span class="kw">if</span> slack < <span class="nu">0</span>:
+        job[<span class="st">"score"</span>] = -self.alpha * abs(slack)
+      <span class="kw">else</span>:
+        job[<span class="st">"score"</span>] =  self.beta  * slack
+    <span class="kw">return</span> <span class="fn">sorted</span>(jobs, key=<span class="kw">lambda</span> j: j[<span class="st">"score"</span>])
+          </div>
+        </div>
+
+        <div class="exhibit" style="margin-top:16px;">
+          <div class="exhibit-label">Environment</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;">
+            <div style="color:var(--text-light)">시뮬레이터</div><div style="font-weight:600">Blox (EuroSys'24)</div>
+            <div style="color:var(--text-light)">트레이스</div><div style="font-weight:600">MS Philly Trace (117K jobs)</div>
+            <div style="color:var(--text-light)">Python</div><div style="font-weight:600">3.14</div>
+            <div style="color:var(--text-light)">부하</div><div style="font-weight:600">8 jobs/hour</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="pagenum">07</div>
+</section>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- 08  RESULTS -->
+<!-- ═══════════════════════════════════════ -->
+<section class="page" id="s8">
+  <div class="page-inner">
+    <div class="kicker">Experiment Results</div>
+    <div class="assertion">고부하 환경에서 SloScoring이 FIFO 대비 JCT 62% 감소, Oracle(SRTF) 수준 달성</div>
+
+    <div class="cols cols-32" style="gap:32px">
+      <div class="exhibit">
+        <div class="exhibit-label">Exhibit 5</div>
+        <div class="exhibit-title">Scheduling Policy Comparison (Real Philly Trace)</div>
+        <div style="font-size:12px;color:var(--text-light);margin-bottom:20px;">Load = 8 jobs/hr &nbsp;|&nbsp; 32 nodes &times; 4 GPUs &nbsp;|&nbsp; <strong>Microsoft Philly Trace (117K jobs)</strong> &nbsp;|&nbsp; 100 tracked jobs</div>
+
+        <table class="mck-table" style="margin-bottom:12px;">
+          <thead><tr><th>정책</th><th>Avg JCT (s)</th><th>FIFO 대비</th><th>Avg 응답성 (s)</th></tr></thead>
+          <tbody>
+            <tr><td><strong>FIFO</strong></td><td>147,361</td><td>기준</td><td>94,709</td></tr>
+            <tr><td><strong>LAS</strong></td><td>179,238</td><td style="color:#c0392b">&plus;21.6%</td><td style="color:#1a7431">441</td></tr>
+            <tr><td><strong>SRTF</strong></td><td>55,255</td><td style="color:#1a7431">&minus;62.5%</td><td>1,519</td></tr>
+            <tr class="row-ours"><td><strong>SloScoring</strong></td><td>55,486</td><td style="color:#1a7431">&minus;62.3%</td><td style="color:#1a7431">468</td></tr>
+          </tbody>
+        </table>
+
+        <table class="mck-table" style="margin-bottom:16px;">
+          <thead><tr><th>정책</th><th>Median JCT</th><th>P95 JCT</th><th>P99 JCT</th></tr></thead>
+          <tbody>
+            <tr><td><strong>FIFO</strong></td><td>109,726</td><td>310,583</td><td>529,336</td></tr>
+            <tr><td><strong>LAS</strong></td><td>17,343</td><td>217,283</td><td>4,615,936</td></tr>
+            <tr><td><strong>SRTF</strong></td><td>17,343</td><td>217,283</td><td>468,136</td></tr>
+            <tr class="row-ours"><td><strong>SloScoring</strong></td><td>17,343</td><td>217,283</td><td style="color:#1a7431">431,536</td></tr>
+          </tbody>
+        </table>
+
+        <div style="font-size:13px;color:var(--text-light);padding:12px;background:var(--off-white);line-height:1.7;">
+          <strong style="color:var(--navy);">핵심 발견:</strong> SloScoring은 Oracle(SRTF)과 동등한 JCT를 달성하면서, 응답성은 SRTF(1,519s) 대비 <strong>3.2배 빠른 468초.</strong> P99에서도 SRTF보다 8% 낮은 tail latency.
+        </div>
+      </div>
+
+      <div>
+        <div class="exhibit">
+          <div class="exhibit-label">Analysis</div>
+          <div class="exhibit-title">정책 간 차이 해석</div>
+          <div style="font-size:14px;line-height:1.8;color:var(--text);">
+            <div style="margin-bottom:16px;">
+              <strong style="color:var(--navy);">1. FIFO: Head-of-line blocking</strong><br>
+              <span style="color:var(--text-light);">긴 작업이 GPU를 점유하면 뒤의 짧은 작업이 94,709초(26시간) 대기. 응답성 최악.</span>
+            </div>
+            <div style="margin-bottom:16px;">
+              <strong style="color:var(--navy);">2. LAS: Preemption 역설</strong><br>
+              <span style="color:var(--text-light);">짧은 작업은 즉시 시작(441s)하지만, 긴 작업의 반복 preemption으로 P99 JCT가 4,615,936초로 폭증.</span>
+            </div>
+            <div>
+              <strong style="color:var(--navy);">3. SloScoring: 최적 균형</strong><br>
+              <span style="color:var(--text-light);">SRTF급 JCT + LAS급 응답성을 동시 달성. SLO 마감 기반 우선순위가 Oracle 수준 성능을 비Oracle 방식으로 구현.</span>
+            </div>
+          </div>
+        </div>
+        <div class="insight-box" style="margin-top:16px;">
+          <div class="insight-label">So What</div>
+          <p>SloScoring은 작업 소요시간을 미리 알 필요 없이(non-Oracle) <strong>Oracle 수준의 JCT와 최고 수준의 응답성을 동시에 달성한다.</strong></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="pagenum">08</div>
+</section>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- 09  ISSUES RESOLVED -->
+<!-- ═══════════════════════════════════════ -->
+<section class="page" id="s9">
+  <div class="page-inner">
+    <div class="kicker">Reproducibility</div>
+    <div class="assertion">Blox 재현 환경을 구축하고 4건의 호환성 이슈를 해결했다</div>
+
+    <div class="exhibit">
+      <div class="exhibit-label">Exhibit 6</div>
+      <div class="exhibit-title">이슈 해결 내역</div>
+      <table class="mck-table">
+        <thead>
+          <tr><th style="width:4%">#</th><th style="width:20%">문제</th><th style="width:38%">원인</th><th style="width:28%">해결</th><th style="width:10%">상태</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="font-weight:900;color:var(--navy);">01</td>
+            <td style="font-weight:600;">protobuf API 변경</td>
+            <td style="color:var(--text-light);">v7.x에서 <code style="font-size:12px;">including_default_value_fields</code> 이름 변경</td>
+            <td><code style="font-size:12px;">always_print_fields_with_no_presence</code></td>
+            <td><span class="pill pill-green">해결</span></td>
+          </tr>
+          <tr>
+            <td style="font-weight:900;color:var(--navy);">02</td>
+            <td style="font-weight:600;">DataFrame.append() 삭제</td>
+            <td style="color:var(--text-light);">pandas 3.x에서 deprecated 메서드 완전 제거</td>
+            <td><code style="font-size:12px;">pd.concat()</code> 으로 대체</td>
+            <td><span class="pill pill-green">해결</span></td>
+          </tr>
+          <tr>
+            <td style="font-weight:900;color:var(--navy);">03</td>
+            <td style="font-weight:600;">gRPC 스텁 미포함</td>
+            <td style="color:var(--text-light);">Blox 레포에 컴파일된 Python 스텁 미배포</td>
+            <td><code style="font-size:12px;">make grpc</code> 수동 컴파일</td>
+            <td><span class="pill pill-green">해결</span></td>
+          </tr>
+          <tr>
+            <td style="font-weight:900;color:var(--navy);">04</td>
+            <td style="font-weight:600;">Philly Trace LFS 포인터</td>
+            <td style="color:var(--text-light);">GitHub LFS pointer(135B)만 클론됨, 실제 데이터(1GB) 미포함</td>
+            <td>LFS media URL 직접 다운로드 (117K jobs 확보)</td>
+            <td><span class="pill pill-green">해결</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="insight-box">
+      <div class="insight-label">Implication</div>
+      <p>이 작업 덕분에 Blox 시뮬레이터 실험이 <strong>완전히 재현 가능</strong>하다. 환경 구축 과정을 문서화하여, 향후 팀원 누구든 동일한 실험을 즉시 수행할 수 있는 기반을 확보했다.</p>
+    </div>
+  </div>
+  <div class="pagenum">09</div>
+</section>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- 10  PROGRESS -->
+<!-- ═══════════════════════════════════════ -->
+<section class="page" id="s10">
+  <div class="page-inner">
+    <div class="kicker">Progress &amp; Status</div>
+    <div class="assertion">실험 인프라 완비 + 실제 Philly Trace 실험 완료 &mdash; 최적화 단계 착수</div>
+
+    <div class="cols cols-32" style="gap:32px">
+      <div class="exhibit">
+        <div class="exhibit-label">Status Tracker</div>
+        <div class="prog-row"><span class="prog-dot done"></span><span class="prog-label">주제 확정 및 문헌 조사</span><span class="prog-status" style="color:#1a7431">완료</span></div>
+        <div class="prog-row"><span class="prog-dot done"></span><span class="prog-label">Blox 시뮬레이터 환경 구축 + 호환성 해결</span><span class="prog-status" style="color:#1a7431">완료</span></div>
+        <div class="prog-row"><span class="prog-dot done"></span><span class="prog-label">실제 Philly Trace 확보 (117K jobs)</span><span class="prog-status" style="color:#1a7431">완료</span></div>
+        <div class="prog-row"><span class="prog-dot done"></span><span class="prog-label">베이스라인 스케줄러 3종 실행 (FIFO/LAS/SRTF)</span><span class="prog-status" style="color:#1a7431">완료</span></div>
+        <div class="prog-row"><span class="prog-dot done"></span><span class="prog-label">SloScoring 프로토타입 구현 + 고부하 실험 완료</span><span class="prog-status" style="color:#1a7431">완료</span></div>
+        <div class="prog-row"><span class="prog-dot done"></span><span class="prog-label">실험 결과: SloScoring JCT &minus;62% (vs FIFO)</span><span class="prog-status" style="color:#1a7431">완료</span></div>
+        <div class="prog-row"><span class="prog-dot done"></span><span class="prog-label">실험 결과 시각화 파이프라인 (3종)</span><span class="prog-status" style="color:#1a7431">완료</span></div>
+        <div class="prog-row"><span class="prog-dot todo"></span><span class="prog-label">부하 인식형 배치 정책 구현</span><span class="prog-status" style="color:var(--text-light)">8~9주차</span></div>
+        <div class="prog-row"><span class="prog-dot todo"></span><span class="prog-label">ML 기반 JCT 예측 프로토타이핑</span><span class="prog-status" style="color:var(--text-light)">10주차</span></div>
+      </div>
+
+      <div>
+        <div class="exhibit" style="text-align:center;padding:40px 24px;">
+          <div style="position:relative;width:160px;height:160px;margin:0 auto 24px;">
+            <svg viewBox="0 0 36 36" style="width:100%;height:100%;transform:rotate(-90deg);">
+              <circle cx="18" cy="18" r="16" fill="none" stroke="var(--warm-gray)" stroke-width="2"/>
+              <circle cx="18" cy="18" r="16" fill="none" stroke="var(--navy)" stroke-width="2" stroke-dasharray="70.4 100" stroke-linecap="round"/>
+            </svg>
+            <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);">
+              <div style="font-size:36px;font-weight:900;color:var(--navy);">70%</div>
+            </div>
+          </div>
+          <div style="font-size:13px;color:var(--text-light);">전체 진행률 (공수 가중치 기준)</div>
+        </div>
+
+        <div class="exhibit" style="margin-top:16px;">
+          <div class="exhibit-label">남은 과제</div>
+          <div style="font-size:14px;line-height:2;color:var(--text);">
+            <strong>1.</strong> α/β 파라미터 민감도 분석<br>
+            <strong>2.</strong> 부하 인식형 배치 정책 구현<br>
+            <strong>3.</strong> ML 기반 JCT 예측 모델 통합<br>
+            <strong>4.</strong> multi-GPU 작업 비중 확대 실험
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="pagenum">10</div>
+</section>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- 11  ROADMAP -->
+<!-- ═══════════════════════════════════════ -->
+<section class="page" id="s11">
+  <div class="page-inner">
+    <div class="kicker">Roadmap</div>
+    <div class="assertion">남은 7주: 고부하 실험 &rarr; ML 프로토타이핑 &rarr; 최종 검증</div>
+
+    <div class="tl">
+      <div class="tl-item">
+        <div class="tl-dot done"></div>
+        <div class="tl-wk">W1&ndash;6</div>
+        <div class="tl-title">환경 구축</div>
+        <div class="tl-desc">문헌조사, Blox 세팅<br>베이스라인 재현<br>프로토타입 구현</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot active"></div>
+        <div class="tl-wk">W7 (Now)</div>
+        <div class="tl-title">중간발표</div>
+        <div class="tl-desc">보고서 작성<br>발표자료 제작<br>멘토 자문</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-wk">W8&ndash;9</div>
+        <div class="tl-title">고부하 실험</div>
+        <div class="tl-desc">&alpha;/&beta; 파라미터 튜닝<br>배치 정책 구현<br>contention 검증</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-wk">W10&ndash;11</div>
+        <div class="tl-title">ML 프로토타이핑</div>
+        <div class="tl-desc">JCT 예측 모델<br>파이프라인 통합<br>파일럿 실험</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-wk">W12&ndash;14</div>
+        <div class="tl-title">최종 발표</div>
+        <div class="tl-desc">성능 분석<br>최종 보고서<br>코드 정리</div>
+      </div>
+    </div>
+
+    <div style="margin-top:48px;">
+      <div class="exhibit">
+        <div class="exhibit-label">Exhibit 7</div>
+        <div class="exhibit-title">팀원별 역할 배분</div>
+        <table class="mck-table">
+          <thead><tr><th>팀원</th><th>W8&ndash;9</th><th>W10&ndash;11</th><th>W12&ndash;14</th></tr></thead>
+          <tbody>
+            <tr><td><strong>윤영준</strong> <span class="pill pill-gold">Lead</span></td><td>SloScoring α/β 파라미터 튜닝</td><td>ML 파이프라인 프로토타이핑</td><td>최종 발표 총괄</td></tr>
+            <tr><td><strong>전현성</strong></td><td>Load-Balanced 배치 구현</td><td>ML 통합 지원 + 파일럿 실험</td><td>논문 정리</td></tr>
+            <tr><td><strong>박준열</strong></td><td>후보 ML 모델 벤치마크 보고서</td><td>실험 결과 시각화</td><td>최종 보고서</td></tr>
+            <tr><td><strong>부광민</strong></td><td>통합 테스트 + Trace 확보</td><td>성능 분석</td><td>대시보드 구축</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="pagenum">11</div>
+</section>
+
+<!-- ═══════════════════════════════════════ -->
+<!-- 12  CLOSING -->
+<!-- ═══════════════════════════════════════ -->
+<section class="page closing" id="s12">
+  <div class="page-inner" style="display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-height:70vh;">
+    <div class="kicker" style="color:var(--gold);">Key Takeaway</div>
+    <div style="height:20px"></div>
+    <div style="font-size:20px;color:rgba(255,255,255,0.85);line-height:1.8;max-width:700px;">
+      SLO 마감일을 비대칭 가중치로 스케줄링에 직접 반영하면,<br>
+      추론 워크로드의 <span style="color:var(--gold);font-weight:700;">응답 시간 보장</span>과
+      <span style="color:var(--gold);font-weight:700;">GPU 활용률</span>을 동시에 개선할 수 있다.
+    </div>
+    <div style="height:32px"></div>
+    <div style="width:100px;height:2px;background:var(--gold);"></div>
+    <div style="height:32px"></div>
+    <div class="assertion" style="color:var(--white);max-width:100%;font-size:clamp(28px,3.5vw,44px);">Q &amp; A</div>
+    <div style="height:32px"></div>
+    <div style="color:rgba(255,255,255,0.45);font-size:13px;line-height:2;">
+      젠슨황팀 &nbsp;&middot;&nbsp; 컴퓨터종합설계
+    </div>
+  </div>
+  <div class="pagenum">12</div>
+</section>
+
+<script>
+const pages=document.querySelectorAll('.page'),nav=document.getElementById('nav');
+pages.forEach((_,i)=>{const a=document.createElement('a');a.href='#s'+i;nav.appendChild(a)});
+const obs=new IntersectionObserver(e=>{e.forEach(en=>{if(en.isIntersecting){const i=parseInt(en.target.id.replace('s',''));document.querySelectorAll('.nav a').forEach((d,j)=>d.classList.toggle('on',j===i))}})},{threshold:0.4});
+pages.forEach(p=>obs.observe(p));
+document.addEventListener('keydown',e=>{
+  const c=[...pages].findIndex(s=>{const r=s.getBoundingClientRect();return r.top>=-100&&r.top<innerHeight/2});
+  if(e.key==='ArrowDown'||e.key===' '){e.preventDefault();if(c<pages.length-1)pages[c+1].scrollIntoView({behavior:'smooth'})}
+  if(e.key==='ArrowUp'){e.preventDefault();if(c>0)pages[c-1].scrollIntoView({behavior:'smooth'})}
+});
+</script>
+</body>
+</html>

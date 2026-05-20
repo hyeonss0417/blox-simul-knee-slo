@@ -8,4 +8,9 @@ __pycache__/
 
 *.pickle
 
+# Large data / binaries (not for GitHub)
+trace-data/
+*.tar.gz
+venv/
+.DS_Store
 
