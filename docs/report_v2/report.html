@@ -195,6 +195,7 @@ li { margin: 4px 0; }
 <li class="toc-h3"><a href="#31-핵심-변수">3.1 핵심 변수</a></li>
 <li class="toc-h3"><a href="#32-urgency-function-3-zone-knee">3.2 Urgency function (3-zone knee)</a></li>
 <li class="toc-h3"><a href="#33-최종-점수-낮을수록-우선">3.3 최종 점수 (낮을수록 우선)</a></li>
+<li class="toc-h3"><a href="#33bis-모든-알고리즘-한눈에-보기">3.3bis 모든 알고리즘 한눈에 보기</a></li>
 <li class="toc-h3"><a href="#34-slo-bucket-변형-실제-winning-디자인">3.4 SLO Bucket 변형 (실제 winning 디자인)</a></li>
 <li class="toc-h2"><a href="#4-metadata-based-duration-predictor">4. Metadata-based Duration Predictor</a></li>
 <li class="toc-h3"><a href="#41-features">4.1 Features</a></li>
@@ -339,6 +340,20 @@ else:            urgency = c1·θ + c2 + c3 · (risk-1)</code></pre>
       − w_age  · age_bonus</code></pre>
 <p>기본 가중치: <code>w_size = w_urg = 1.0, w_age = 0.1</code>.</p>
 <p><img src="figures/algo_flow.png" alt="Algorithm flow" /></p>
+<h3 id="33bis-모든-알고리즘-한눈에-보기">3.3bis 모든 알고리즘 한눈에 보기</h3>
+<p>같은 큐 (J1 short-new, J2 short-old, J3 medium-progress, J4 long-new, J5 long-overdue) 를 11 개 알고리즘이 어떻게 다르게 정렬하는지:</p>
+<p><img src="figures/algo_ordering_demo.png" alt="Algorithm ordering demo" /></p>
+<p>흥미로운 관찰:</p>
+<ul>
+<li><strong>FIFO</strong>: J5 (가장 오래 전 제출) → J1 (가장 최근). 단순 submit 순.</li>
+<li><strong>LAS / SRTF / MetaSrtf</strong>: J1 (짧고 새 잡) 우선 — short-job bias.</li>
+<li><strong>EDF / LLF</strong>: J5 우선 (이미 SLO 초과) — deadline-aware.</li>
+<li><strong>LasSlo / SrtfSlo / MetaSrtfSlo (bucket 변형)</strong>: J5, J2 가 critical bucket 으로 absolute priority → 두 잡 보호. 그 다음 J3 (warning), 마지막에 J1, J4 (safe).</li>
+</ul>
+<p>각 알고리즘이 어떤 신호를 쓰는지:</p>
+<p><img src="figures/algo_feature_matrix.png" alt="Algorithm feature matrix" /></p>
+<p>한 줄 요약 카드:</p>
+<p><img src="figures/algo_pseudocode_grid.png" alt="Scheduler cards" /></p>
 <h3 id="34-slo-bucket-변형-실제-winning-디자인">3.4 SLO Bucket 변형 (실제 winning 디자인)</h3>
 <p>Knee-SLO 의 continuous urgency 가 heavy contention 에서 <strong>urgency saturation</strong> 으로 LJF-like 로 degenerate 하는 문제 (§5.1) 를 해결하기 위해, 다음 <strong>discrete bucket</strong> 디자인을 채택.</p>
 <pre><code>sort_key = (priority, bucket, secondary)

@@ -108,6 +108,26 @@ score = w_size · (r / global_avg)             # SJF bias
 
 ![Algorithm flow](figures/algo_flow.png)
 
+### 3.3bis 모든 알고리즘 한눈에 보기
+
+같은 큐 (J1 short-new, J2 short-old, J3 medium-progress, J4 long-new, J5 long-overdue) 를 11 개 알고리즘이 어떻게 다르게 정렬하는지:
+
+![Algorithm ordering demo](figures/algo_ordering_demo.png)
+
+흥미로운 관찰:
+- **FIFO**: J5 (가장 오래 전 제출) → J1 (가장 최근). 단순 submit 순.
+- **LAS / SRTF / MetaSrtf**: J1 (짧고 새 잡) 우선 — short-job bias.
+- **EDF / LLF**: J5 우선 (이미 SLO 초과) — deadline-aware.
+- **LasSlo / SrtfSlo / MetaSrtfSlo (bucket 변형)**: J5, J2 가 critical bucket 으로 absolute priority → 두 잡 보호. 그 다음 J3 (warning), 마지막에 J1, J4 (safe).
+
+각 알고리즘이 어떤 신호를 쓰는지:
+
+![Algorithm feature matrix](figures/algo_feature_matrix.png)
+
+한 줄 요약 카드:
+
+![Scheduler cards](figures/algo_pseudocode_grid.png)
+
 ### 3.4 SLO Bucket 변형 (실제 winning 디자인)
 
 Knee-SLO 의 continuous urgency 가 heavy contention 에서 **urgency saturation** 으로 LJF-like 로 degenerate 하는 문제 (§5.1) 를 해결하기 위해, 다음 **discrete bucket** 디자인을 채택.
