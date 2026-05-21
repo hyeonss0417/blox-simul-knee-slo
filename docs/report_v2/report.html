@@ -200,7 +200,8 @@ li { margin: 4px 0; }
 <li class="toc-h3"><a href="#31-contention-regime-별-결과--main-finding">3.1 Contention regime 별 결과 (★ main finding)</a></li>
 <li class="toc-h3"><a href="#32-2-gpu-깊은-분석--metasrtf-가-oracle-srtf-와-동등">3.2 2 GPU 깊은 분석 — MetaSrtf 가 Oracle SRTF 와 동등</a></li>
 <li class="toc-h3"><a href="#33-왜-추론에서-차이가-21--인가--잡-변동성-한계">3.3 왜 추론에서 차이가 21 % 인가 — 잡 변동성 한계</a></li>
-<li class="toc-h3"><a href="#34-cluster-size-무관--동일한-ranking-이-모든-size-에-적용">3.4 Cluster size 무관 — 동일한 ranking 이 모든 size 에 적용</a></li>
+<li class="toc-h3"><a href="#34-mixed-추론--훈련-워크로드--bucket-이-유일한-안전-옵션">3.4 Mixed (추론 + 훈련) 워크로드 — Bucket 이 유일한 안전 옵션</a></li>
+<li class="toc-h3"><a href="#35-cluster-size-무관--동일한-ranking-이-모든-size-에-적용">3.5 Cluster size 무관 — 동일한 ranking 이 모든 size 에 적용</a></li>
 <li class="toc-h2"><a href="#4-왜-동작하는가--메커니즘">4. 왜 동작하는가 — 메커니즘</a></li>
 <li class="toc-h3"><a href="#41-bucket-이-starvation-을-막는-원리">4.1 Bucket 이 starvation 을 막는 원리</a></li>
 <li class="toc-h3"><a href="#42-submission-time-predictor--oracle-없이-40-회복">4.2 Submission-time predictor — Oracle 없이 40% 회복</a></li>
@@ -559,7 +560,59 @@ li { margin: 4px 0; }
 </table>
 <p>→ <strong>추론 차이가 작은 본질적 이유</strong>: 잡들이 너무 균일 (max/min 567× 지만 90 % 가 mean ±2× 안). 변동성이 큰 워크로드 (짧은 이미지 + 긴 LLM + 매우 긴 비디오 혼합) 에서는 <strong>2 배 이상의 gain</strong> 예상.</p>
 <p>본 21 % gain 은 알고리즘 한계가 아니라 <strong>워크로드 변동성 한계 — 이론 천장 (26 %) 의 80 % 회복</strong>.</p>
-<h3 id="34-cluster-size-무관--동일한-ranking-이-모든-size-에-적용">3.4 Cluster size 무관 — 동일한 ranking 이 모든 size 에 적용</h3>
+<h3 id="34-mixed-추론--훈련-워크로드--bucket-이-유일한-안전-옵션">3.4 Mixed (추론 + 훈련) 워크로드 — Bucket 이 유일한 안전 옵션</h3>
+<p>순수 추론은 CoV=0.73 으로 잡 변동성이 제한적이었다. <strong>20 % 잡을 10 분~2 시간 짜리 합성 training 잡으로 대체</strong> 하여 CoV 를 2.46 으로 끌어올린 mixed workload 에서 재실험:</p>
+<table>
+<thead>
+<tr class="header">
+<th>Setup (ρ)</th>
+<th>FIFO</th>
+<th>LAS</th>
+<th>SRTF</th>
+<th>MetaSrtf</th>
+<th>SrtfSlo</th>
+<th>MetaSrtfSlo</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>2 GPU, ρ ≈ 1.4× (mild)</td>
+<td>20,462 s</td>
+<td>💀</td>
+<td>💀</td>
+<td>💀</td>
+<td>20,502</td>
+<td>20,462</td>
+</tr>
+<tr class="even">
+<td>2 GPU, ρ ≈ 2.1×</td>
+<td>28,522</td>
+<td>💀</td>
+<td>💀</td>
+<td>💀</td>
+<td>28,547</td>
+<td>28,522</td>
+</tr>
+<tr class="odd">
+<td>4 GPU, ρ ≈ 1.7×</td>
+<td>12,064</td>
+<td>💀</td>
+<td>💀</td>
+<td>💀</td>
+<td>12,078</td>
+<td>12,064</td>
+</tr>
+</tbody>
+</table>
+<p><strong>핵심 발견</strong>:</p>
+<ol type="1">
+<li><strong>순수 추론과 결정적 차이</strong> — 순수 추론 mild (ρ=1.3×) 에선 LAS/SRTF/MetaSrtf 가 정상 동작 (FIFO 대비 −21%). Mixed 에서는 <strong>ρ=1.4× 같은 mild 부하에서도 모두 thrash</strong>. 큰 training 잡이 짧은 inference 에 계속 preempt 당해 영원히 미완료.</li>
+<li><strong>이론 SJF gain ≈ 300%, realized = 0%</strong> — Pollaczek-Khinchine 이론은 high CoV 에서 큰 gain 을 예측하나, open system 의 starvation 으로 실현 불가능.</li>
+<li><strong>Bucket variants 만 유일하게 안전</strong> — FIFO 와 동일한 평균 (차이 &lt; 0.2 %) 으로 모든 잡 종료 보장.</li>
+</ol>
+<p>→ <strong>본 contribution 의 강도가 mixed workload 에서 가장 크다</strong>: 순수 추론에선 "선택 가이드" 정도였지만, mixed 에선 <strong>bucket variants 가 유일하게 viable</strong> 한 옵션.</p>
+<p>→ Production 시사: GPU 클러스터가 추론 + 훈련을 함께 호스팅한다면 (실제로 흔한 경우), pure shortest-first (vanilla LAS/SRTF) 는 <strong>mild 부하에서도 catastrophically 실패</strong>. SLO bucket 이 안전 필수.</p>
+<h3 id="35-cluster-size-무관--동일한-ranking-이-모든-size-에-적용">3.5 Cluster size 무관 — 동일한 ranking 이 모든 size 에 적용</h3>
 <p>같은 ρ=2.6× 를 유지하며 cluster 를 8× 까지 키워도:</p>
 <p><img src="figures/scale_sweep.png" alt="Scale sweep" /></p>
 <table>

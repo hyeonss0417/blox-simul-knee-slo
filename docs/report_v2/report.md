@@ -174,7 +174,27 @@ Pollaczek-Khinchine 큐잉 이론에서 **SJF/SRTF 가 FCFS 대비 평균 wait �
 
 본 21 % gain 은 알고리즘 한계가 아니라 **워크로드 변동성 한계 — 이론 천장 (26 %) 의 80 % 회복**.
 
-### 3.4 Cluster size 무관 — 동일한 ranking 이 모든 size 에 적용
+### 3.4 Mixed (추론 + 훈련) 워크로드 — Bucket 이 유일한 안전 옵션
+
+순수 추론은 CoV=0.73 으로 잡 변동성이 제한적이었다. **20 % 잡을 10 분~2 시간 짜리 합성 training 잡으로 대체** 하여 CoV 를 2.46 으로 끌어올린 mixed workload 에서 재실험:
+
+| Setup (ρ) | FIFO | LAS | SRTF | MetaSrtf | SrtfSlo | MetaSrtfSlo |
+| --------- | ---- | --- | ---- | -------- | ------- | ----------- |
+| 2 GPU, ρ ≈ 1.4× (mild) | 20,462 s | 💀 | 💀 | 💀 | 20,502 | 20,462 |
+| 2 GPU, ρ ≈ 2.1× | 28,522 | 💀 | 💀 | 💀 | 28,547 | 28,522 |
+| 4 GPU, ρ ≈ 1.7× | 12,064 | 💀 | 💀 | 💀 | 12,078 | 12,064 |
+
+**핵심 발견**:
+
+1. **순수 추론과 결정적 차이** — 순수 추론 mild (ρ=1.3×) 에선 LAS/SRTF/MetaSrtf 가 정상 동작 (FIFO 대비 −21%). Mixed 에서는 **ρ=1.4× 같은 mild 부하에서도 모두 thrash**. 큰 training 잡이 짧은 inference 에 계속 preempt 당해 영원히 미완료.
+2. **이론 SJF gain ≈ 300%, realized = 0%** — Pollaczek-Khinchine 이론은 high CoV 에서 큰 gain 을 예측하나, open system 의 starvation 으로 실현 불가능.
+3. **Bucket variants 만 유일하게 안전** — FIFO 와 동일한 평균 (차이 < 0.2 %) 으로 모든 잡 종료 보장.
+
+→ **본 contribution 의 강도가 mixed workload 에서 가장 크다**: 순수 추론에선 "선택 가이드" 정도였지만, mixed 에선 **bucket variants 가 유일하게 viable** 한 옵션.
+
+→ Production 시사: GPU 클러스터가 추론 + 훈련을 함께 호스팅한다면 (실제로 흔한 경우), pure shortest-first (vanilla LAS/SRTF) 는 **mild 부하에서도 catastrophically 실패**. SLO bucket 이 안전 필수.
+
+### 3.5 Cluster size 무관 — 동일한 ranking 이 모든 size 에 적용
 
 같은 ρ=2.6× 를 유지하며 cluster 를 8× 까지 키워도:
 

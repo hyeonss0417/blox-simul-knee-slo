@@ -83,6 +83,7 @@ case "$EXP_PREFIX" in
     inf_*)       DEST="results/inference_singlepool" ;;
     co_*)        DEST="results/contention" ;;
     sw_*|sc_*)   DEST="results/contention_sweep" ;;
+    mx_*)        DEST="results/mixed" ;;
     bb_*)        DEST="results/beat_baseline" ;;
     w3_*)        DEST="results/load_sweep" ;;
     mw_*|mw2_*)  DEST="results/meta_win" ;;
