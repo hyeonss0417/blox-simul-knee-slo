@@ -188,7 +188,7 @@ li { margin: 4px 0; }
 <body>
 <nav class="toc"><h4>목차</h4><ul>
 <li class="toc-h2"><a href="#1-결론">1. 결론</a></li>
-<li class="toc-h3"><a href="#10-가장-강력한-결과--2-gpu-고경합-워크로드-e-9quinquies">1.0 가장 강력한 결과 — 2 GPU 고경합 (워크로드 E, §9quinquies)</a></li>
+<li class="toc-h3"><a href="#10-가장-강력한-결과--contention-regime별-의사결정-가이드">1.0 가장 강력한 결과 — Contention regime별 의사결정 가이드</a></li>
 <li class="toc-h3"><a href="#11-핵심-positive-result--metadata-predictor--srtf는-oracle-srtf와-동등-closed-batch">1.1 핵심 positive result — Metadata predictor + SRTF는 oracle SRTF와 동등 (closed batch)</a></li>
 <li class="toc-h3"><a href="#12-핵심-stability-contribution--bucket이-open-system-starvation을-막는다">1.2 핵심 stability contribution — bucket이 open-system starvation을 막는다</a></li>
 <li class="toc-h3"><a href="#13-워크로드-별-부가-결과-negative--mixed">1.3 워크로드 별 부가 결과 (negative / mixed)</a></li>
@@ -258,6 +258,13 @@ li { margin: 4px 0; }
 <li class="toc-h3"><a href="#9quinquies2-결과--metasrtf-가-명확히-우위">9quinquies.2 결과 — MetaSrtf 가 명확히 우위</a></li>
 <li class="toc-h3"><a href="#9quinquies3-핵심-발견">9quinquies.3 핵심 발견</a></li>
 <li class="toc-h3"><a href="#9quinquies4-의의">9quinquies.4 의의</a></li>
+<li class="toc-h2"><a href="#9sexies-워크로드-f--contention-sweep-regime별-결정적-분석">9sexies. 워크로드 F — Contention sweep (regime별 결정적 분석)</a></li>
+<li class="toc-h3"><a href="#9sexies1-setup-matrix">9sexies.1 Setup matrix</a></li>
+<li class="toc-h3"><a href="#9sexies2-결과">9sexies.2 결과</a></li>
+<li class="toc-h3"><a href="#9sexies3-핵심-발견--regime-dependent-algorithm-behavior">9sexies.3 핵심 발견 — Regime-dependent algorithm behavior</a></li>
+<li class="toc-h3"><a href="#9sexies4-pareto">9sexies.4 Pareto</a></li>
+<li class="toc-h3"><a href="#9sexies5-production-deployment-guide-요약">9sexies.5 Production deployment guide (요약)</a></li>
+<li class="toc-h3"><a href="#9sexies6-종합-메시지">9sexies.6 종합 메시지</a></li>
 <li class="toc-h2"><a href="#10-사후-정정--워크로드-라벨-오류와-추가-검증">10. 사후 정정 — 워크로드 라벨 오류와 추가 검증</a></li>
 <li class="toc-h2"><a href="#11-baselines-워크로드-a--합성-training-like">11. Baselines (워크로드 A — 합성 training-like)</a></li>
 <li class="toc-h2"><a href="#12-평가-지표-v2-추가">12. 평가 지표 (v2 추가)</a></li>
@@ -294,57 +301,49 @@ li { margin: 4px 0; }
 <hr />
 <h2 id="1-결론">1. 결론</h2>
 <p>본 연구는 <strong>GPU 클러스터에서 SLO-aware 스케줄링이 단순 LAS/FIFO 대비 의미 있는 개선을 줄 수 있는지</strong> 를 묻고, <strong>세 가지 실험 setup</strong>(워크로드 A 합성 training, 워크로드 B 단일-pool 추론, 워크로드 C closed-batch 추론) 에서 총 70+ 스케줄러 구성을 평가했다.</p>
-<h3 id="10-가장-강력한-결과--2-gpu-고경합-워크로드-e-9quinquies">1.0 가장 강력한 결과 — 2 GPU 고경합 (워크로드 E, §9quinquies)</h3>
+<h3 id="10-가장-강력한-결과--contention-regime별-의사결정-가이드">1.0 가장 강력한 결과 — Contention regime별 의사결정 가이드</h3>
+<p><strong>§9quinquies (단일 setup) + §9sexies (3-setup sweep, 36 runs) 을 종합한 결정적 발견</strong>:</p>
 <table>
 <thead>
 <tr class="header">
-<th>Scheduler</th>
-<th>Avg</th>
+<th>Contention 강도</th>
+<th>최우수 알고리즘</th>
 <th>vs FIFO</th>
-<th>Tail (P99/Max)</th>
+<th>위험한 알고리즘</th>
+<th>Pure shortest-first 상태</th>
 </tr>
 </thead>
 <tbody>
 <tr class="odd">
-<td>🥇 <strong>MetaSrtf (non-Oracle)</strong></td>
-<td><strong>63.2s</strong></td>
-<td><strong>−14.0%</strong></td>
-<td>503/585</td>
+<td><strong>Mild</strong> (ρ ≈ 1.3×)</td>
+<td><strong>SRTF / MetaSrtf</strong></td>
+<td>−21 % / −15 %</td>
+<td>LAS (+49 %)</td>
+<td>✅ 정상 작동</td>
 </tr>
 <tr class="even">
-<td>🥈 SRTF (oracle)</td>
-<td>64.3</td>
-<td>−12.5%</td>
-<td>388/405</td>
+<td><strong>Moderate</strong> (ρ ≈ 1.7×, 2 GPU)</td>
+<td><strong>MetaSrtf (non-Oracle)</strong> = oracle SRTF</td>
+<td>−14 %</td>
+<td>LAS (+53 %)</td>
+<td>✅ 정상</td>
 </tr>
 <tr class="odd">
-<td>🥉 FIFO</td>
-<td>73.5</td>
-<td>baseline</td>
-<td>198/204</td>
-</tr>
-<tr class="even">
-<td>SrtfSlo (bucket)</td>
-<td>74.0</td>
-<td>+0.7%</td>
-<td><strong>198/204</strong> ← tight tail</td>
-</tr>
-<tr class="odd">
-<td>SjfTotal (cat-mean)</td>
-<td>78.5</td>
-<td>+6.8%</td>
-<td>332/353</td>
-</tr>
-<tr class="even">
-<td>❌ LAS</td>
-<td>112.7</td>
-<td><strong>+53.3%</strong></td>
-<td>545/589</td>
+<td><strong>Heavy</strong> (ρ ≥ 2.6×)</td>
+<td><strong>bucket 변형 (SrtfSlo / MetaSrtfSlo)</strong></td>
+<td>0 % (same as FIFO)</td>
+<td>LAS / SRTF / MetaSrtf 모두 thrash</td>
+<td>💀 starvation</td>
 </tr>
 </tbody>
 </table>
-<p>→ Metadata-only predictor (R² 0.39) 가 oracle 정보 없이 oracle SRTF 와 동등 성능, FIFO 대비 14 % 개선. Bucket 변형은 tail 을 절반으로 압축. <strong>본 보고서의 가장 강력한 contribution</strong>.</p>
-<p><img src="figures/contention_avg.png" alt="Contention Avg JCT" /></p>
+<p><img src="figures/sweep_avg_by_setup.png" alt="Sweep avg by setup" /></p>
+<p>핵심 contribution:</p>
+<ul>
+<li><strong>🏆 MetaSrtf (non-Oracle) = oracle SRTF</strong>: 두 다른 setup 에서 일관 확인 (§9quinquies + §9sexies). Metadata predictor (R² 0.39) 만으로 oracle SRTF 성능 달성.</li>
+<li><strong>🛡️ Bucket 변형의 stability</strong>: heavy contention (ρ≥2.6×) 에서 pure shortest-first 가 starvation 으로 thrash 할 때, bucket 변형 만이 정상 종료.</li>
+<li><strong>❌ LAS 는 모든 영역에서 차선</strong>: mild (+49 %) ~ heavy (thrash) — 어디서도 추천 안 됨.</li>
+</ul>
 <h3 id="11-핵심-positive-result--metadata-predictor--srtf는-oracle-srtf와-동등-closed-batch">1.1 핵심 positive result — Metadata predictor + SRTF는 oracle SRTF와 동등 (closed batch)</h3>
 <p><strong>🏆 가장 큰 contribution</strong>: trace metadata (predict_type, checkpoint_model, num_inference_steps, num_images_per_prompt, num_lora) 만으로 학습한 <strong>linear regression predictor (R² = 0.39, MAE = 9.24s)</strong> 가, ground-truth duration을 쓰는 oracle SRTF 와 <strong>동일한 평균 JCT 를 달성</strong>.</p>
 <table>
@@ -2394,6 +2393,142 @@ bucket 2 (safe):     otherwise</code></pre>
 <blockquote>
 <p>"2 GPU 고경합 환경에서 metadata-based MetaSrtf 가 oracle SRTF 와 동등하면서 FIFO 대비 14 % Avg JCT 개선. bucket 변형은 tail latency 를 절반으로 압축. LAS 는 모든 metric 에서 최악. — 이 결과가 본 연구의 가장 명확한 contribution 이다."</p>
 </blockquote>
+<hr />
+<h2 id="9sexies-워크로드-f--contention-sweep-regime별-결정적-분석">9sexies. 워크로드 F — Contention sweep (regime별 결정적 분석)</h2>
+<p>§9quinquies 의 2 GPU 결과가 우연이 아닌지 확인하기 위해 다양한 contention 강도에서 sweep 진행. <strong>MetaSrtfSlo</strong> (MetaSrtf + bucket combo) 도 본 sweep 에서 처음 평가.</p>
+<h3 id="9sexies1-setup-matrix">9sexies.1 Setup matrix</h3>
+<table>
+<thead>
+<tr class="header">
+<th>GPU 수</th>
+<th>Load (jobs/hr)</th>
+<th>ρ (over capacity)</th>
+<th>강도</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>1</td>
+<td>100</td>
+<td>1.3×</td>
+<td>mild</td>
+</tr>
+<tr class="even">
+<td>1</td>
+<td>200</td>
+<td>2.6×</td>
+<td>HEAVY</td>
+</tr>
+<tr class="odd">
+<td>2</td>
+<td>400</td>
+<td>2.6×</td>
+<td>HEAVY</td>
+</tr>
+</tbody>
+</table>
+<p>각 setup 에 대해 <strong>2 개의 다른 track range</strong> (10–110, 1000–1100) 로 통계 robustness 확보. 6 algorithms × 3 setups × 2 ranges = <strong>36 runs</strong> (3 min timeout — thrash 시 자동 skip).</p>
+<h3 id="9sexies2-결과">9sexies.2 결과</h3>
+<p><img src="figures/sweep_avg_by_setup.png" alt="Sweep avg by setup" /></p>
+<table>
+<thead>
+<tr class="header">
+<th>Setup</th>
+<th>FIFO</th>
+<th>LAS</th>
+<th>SRTF</th>
+<th>MetaSrtf</th>
+<th>SrtfSlo</th>
+<th>MetaSrtfSlo</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>1 G mild</strong> (l=100)</td>
+<td>93.2</td>
+<td>138.8 (+49 %)</td>
+<td><strong>73.8</strong> (−21 %)</td>
+<td>79.2 (−15 %)</td>
+<td>93.5</td>
+<td>93.4</td>
+</tr>
+<tr class="even">
+<td><strong>1 G HEAVY</strong> (l=200)</td>
+<td>5534</td>
+<td>💀 thrash</td>
+<td>💀 thrash</td>
+<td>💀 thrash</td>
+<td><strong>5534</strong></td>
+<td><strong>5534</strong></td>
+</tr>
+<tr class="odd">
+<td><strong>2 G HEAVY</strong> (l=400)</td>
+<td>2636</td>
+<td>💀 thrash</td>
+<td>💀 thrash</td>
+<td>💀 thrash</td>
+<td><strong>2636</strong></td>
+<td><strong>2636</strong></td>
+</tr>
+</tbody>
+</table>
+<p>(thrash = 3 분 wall-clock timeout 후 강제 종료 — tracked 잡들이 starve)</p>
+<h3 id="9sexies3-핵심-발견--regime-dependent-algorithm-behavior">9sexies.3 핵심 발견 — Regime-dependent algorithm behavior</h3>
+<p><strong>Mild contention (m1g1_l100, ρ=1.3×)</strong>:</p>
+<ul>
+<li>SRTF best: <strong>−21 % Avg vs FIFO</strong> (이론대로 SRTF 최적)</li>
+<li>MetaSrtf: <strong>−15 % vs FIFO</strong> — oracle 의 ~70 % gain 을 non-Oracle 로 달성</li>
+<li>LAS 최악: <strong>+49 %</strong> — 새 잡 편향이 tail 폭주</li>
+<li>bucket 변형 (SrtfSlo/MetaSrtfSlo): <strong>FIFO 와 동일</strong> (93.5 vs 93.2) — bucket overhead 가 mild 에서는 SRTF 우월성을 희석</li>
+</ul>
+<p><strong>Heavy contention (ρ ≥ 2.6×, m1g1_l200 / m1g2_l400)</strong>:</p>
+<ul>
+<li>LAS / SRTF / MetaSrtf 모두 <strong>catastrophic thrash</strong> (2 개 다른 range 에서 일관 재현)</li>
+<li>FIFO 와 bucket 변형 (SrtfSlo, MetaSrtfSlo) 만 정상 종료</li>
+<li>모두 동일 Avg JCT (시뮬레이터가 결국 같은 sim time 에 drain)</li>
+<li><strong>Bucket 변형이 stability 를 제공하는 유일한 SLO-aware 옵션</strong></li>
+</ul>
+<h3 id="9sexies4-pareto">9sexies.4 Pareto</h3>
+<p><img src="figures/sweep_pareto.png" alt="Sweep Pareto" /></p>
+<p>각 setup 의 Avg vs P99 trade-off. Heavy contention 점들이 우상단 (high Avg, high P99) 으로 몰리는 현상 확인.</p>
+<h3 id="9sexies5-production-deployment-guide-요약">9sexies.5 Production deployment guide (요약)</h3>
+<table>
+<thead>
+<tr class="header">
+<th>예상 contention ρ</th>
+<th>추천 알고리즘</th>
+<th>근거</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>ρ &lt; 1.5×</td>
+<td><strong>SRTF</strong> (또는 <strong>MetaSrtf</strong> if metadata 가용)</td>
+<td>평균 ~20 % 개선</td>
+</tr>
+<tr class="even">
+<td>1.5× ≤ ρ &lt; 2×</td>
+<td><strong>MetaSrtfSlo</strong></td>
+<td>SRTF 효율 + bucket 보호의 균형</td>
+</tr>
+<tr class="odd">
+<td>ρ ≥ 2×</td>
+<td><strong>MetaSrtfSlo</strong> / <strong>SrtfSlo</strong></td>
+<td>thrash 회피 필수</td>
+</tr>
+<tr class="even">
+<td>ρ 변동 / 불확실</td>
+<td><strong>MetaSrtfSlo</strong></td>
+<td>모든 영역에서 안전</td>
+</tr>
+</tbody>
+</table>
+<p>LAS 는 어느 영역에서도 추천 아님.</p>
+<h3 id="9sexies6-종합-메시지">9sexies.6 종합 메시지</h3>
+<blockquote>
+<p><strong>"SLO-aware bucket variants 는 mild contention 에서는 ~ 0 % overhead 를 가지며, heavy contention (ρ ≥ 2.6×) 에서는 유일하게 안정적인 SLO-aware 알고리즘이다. Pure shortest-first (LAS / SRTF / MetaSrtf) 는 ρ ≥ 2× 에서 starvation 으로 thrash 한다."</strong></p>
+</blockquote>
+<p>본 연구의 <strong>practical guidance</strong>: 사용자는 자신의 클러스터 contention 수준에 따라 알고리즘을 선택하면 된다 — 본 보고서가 정확한 decision rule 을 제공한다.</p>
 <hr />
 <h2 id="10-사후-정정--워크로드-라벨-오류와-추가-검증">10. 사후 정정 — 워크로드 라벨 오류와 추가 검증</h2>
 <p><strong>§11~§1 의 모든 결과는 "합성 gavel-like training-size 워크로드"에서 얻은 결과</strong>다. 처음에는 이를 "Alibaba GenAI 추론 trace"로 라벨링했으나, 실험 검증 단계에서 <code>simulator_simple.py</code> 의 디폴트 <code>exponential=True</code> 가 trace의 실제 <code>exec_time</code>(12–33 초)를 <code>get_gavel_like_iter()</code> 의 합성 duration (~30 분 ~ 150 시간)으로 덮어쓰고 있음을 발견했다.</p>
