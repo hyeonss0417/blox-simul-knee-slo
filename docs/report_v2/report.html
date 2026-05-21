@@ -196,7 +196,8 @@ li { margin: 4px 0; }
 <li class="toc-h3"><a href="#32-urgency-function-3-zone-knee">3.2 Urgency function (3-zone knee)</a></li>
 <li class="toc-h3"><a href="#33-최종-점수-낮을수록-우선">3.3 최종 점수 (낮을수록 우선)</a></li>
 <li class="toc-h3"><a href="#33bis-모든-알고리즘-한눈에-보기">3.3bis 모든 알고리즘 한눈에 보기</a></li>
-<li class="toc-h3"><a href="#34-slo-bucket-변형-실제-winning-디자인">3.4 SLO Bucket 변형 (실제 winning 디자인)</a></li>
+<li class="toc-h3"><a href="#34-placement-정책에-관한-결정-의도적-단순화">3.4 Placement 정책에 관한 결정 (의도적 단순화)</a></li>
+<li class="toc-h3"><a href="#35-slo-bucket-변형-실제-winning-디자인">3.5 SLO Bucket 변형 (실제 winning 디자인)</a></li>
 <li class="toc-h2"><a href="#4-metadata-based-duration-predictor">4. Metadata-based Duration Predictor</a></li>
 <li class="toc-h3"><a href="#40-non-oracle-의-정확한-의미--솔직히">4.0 &quot;Non-Oracle&quot; 의 정확한 의미 — 솔직히</a></li>
 <li class="toc-h3"><a href="#41-features-모두-submission-time">4.1 Features (모두 submission-time)</a></li>
@@ -212,7 +213,8 @@ li { margin: 4px 0; }
 <li class="toc-h3"><a href="#71-2-gpu-단일-실험-워크로드-e">7.1 2 GPU 단일 실험 (워크로드 E)</a></li>
 <li class="toc-h3"><a href="#72-contention-sweep-워크로드-f-36-runs">7.2 Contention sweep (워크로드 F, 36 runs)</a></li>
 <li class="toc-h3"><a href="#73-regime-별-메시지">7.3 Regime-별 메시지</a></li>
-<li class="toc-h3"><a href="#74-tail-latency-trade-off">7.4 Tail latency trade-off</a></li>
+<li class="toc-h3"><a href="#74-scale-invariance--같은-ρ-더-큰-cluster">7.4 Scale-invariance — 같은 ρ, 더 큰 cluster</a></li>
+<li class="toc-h3"><a href="#74bis-tail-latency-trade-off">7.4bis Tail latency trade-off</a></li>
 <li class="toc-h2"><a href="#8-open-system-stability--bucket-이-starvation-을-어떻게-막는가">8. Open-system Stability — bucket 이 starvation 을 어떻게 막는가</a></li>
 <li class="toc-h2"><a href="#9-실험-한계-정직한-평가">9. 실험 한계 (정직한 평가)</a></li>
 <li class="toc-h2"><a href="#10-결론-요약">10. 결론 (요약)</a></li>
@@ -355,7 +357,21 @@ else:            urgency = c1·θ + c2 + c3 · (risk-1)</code></pre>
 <p><img src="figures/algo_feature_matrix.png" alt="Algorithm feature matrix" /></p>
 <p>한 줄 요약 카드:</p>
 <p><img src="figures/algo_pseudocode_grid.png" alt="Scheduler cards" /></p>
-<h3 id="34-slo-bucket-변형-실제-winning-디자인">3.4 SLO Bucket 변형 (실제 winning 디자인)</h3>
+<h3 id="34-placement-정책에-관한-결정-의도적-단순화">3.4 Placement 정책에 관한 결정 (의도적 단순화)</h3>
+<p>본 연구는 <strong>scheduling 정책</strong>만 변경하고 GPU placement 는 Blox 기본 (free GPU 중 첫 매칭) 유지. 이유:</p>
+<ul>
+<li>본 워크로드의 모든 잡이 <code>multigpu=False</code> → 1 GPU 만 요구</li>
+<li>1-GPU 잡 + N free GPUs → "어느 GPU 에 넣을지" 의 placement decision 이 <strong>latency 측면에서 무의미</strong></li>
+<li>§7.5 scale-up sweep 도 이 관찰을 confirm: cluster size 가 변해도 알고리즘 ranking 동일</li>
+</ul>
+<p><strong>Placement 가 의미를 가지려면</strong> 다음 조건이 필요 (본 연구 범위 밖, 향후 과제):</p>
+<ul>
+<li>multi-GPU 잡 (tensor / pipeline parallel) — consolidated vs scattered 선택</li>
+<li>NUMA / topology 인지 — 같은 머신 내 GPU 우선</li>
+<li>메모리 fragmentation 회피</li>
+</ul>
+<p>향후 multi-GPU 워크로드 추가 시 SLO-aware placement (urgent 잡에 consolidated, 일반 잡에 scattered) 가 의미 있을 것.</p>
+<h3 id="35-slo-bucket-변형-실제-winning-디자인">3.5 SLO Bucket 변형 (실제 winning 디자인)</h3>
 <p>Knee-SLO 의 continuous urgency 가 heavy contention 에서 <strong>urgency saturation</strong> 으로 LJF-like 로 degenerate 하는 문제 (§5.1) 를 해결하기 위해, 다음 <strong>discrete bucket</strong> 디자인을 채택.</p>
 <pre><code>sort_key = (priority, bucket, secondary)
 
@@ -891,7 +907,47 @@ bucket 2 (safe):      otherwise                     → secondary = same</code><
 </tbody>
 </table>
 <p><strong>Pure shortest-first 가 ρ ≥ 2× 에서 catastrophic starvation 으로 thrash 하는 것은 scheduling 이론의 고전적 결과</strong> (SRTF 는 closed batch 에서만 최적). Bucket 변형이 이를 stable 하게 회피.</p>
-<h3 id="74-tail-latency-trade-off">7.4 Tail latency trade-off</h3>
+<h3 id="74-scale-invariance--같은-ρ-더-큰-cluster">7.4 Scale-invariance — 같은 ρ, 더 큰 cluster</h3>
+<p>ρ ≈ 2.6× 를 유지하면서 cluster + load 를 비례 확대했을 때 알고리즘 ranking 이 변하는가?</p>
+<p><img src="figures/scale_sweep.png" alt="Scale sweep" /></p>
+<table>
+<thead>
+<tr class="header">
+<th>GPU</th>
+<th>load</th>
+<th>FIFO / Bucket Avg</th>
+<th>LAS / SRTF / MetaSrtf</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>1</td>
+<td>200</td>
+<td><strong>919 s</strong></td>
+<td>💀 thrash</td>
+</tr>
+<tr class="even">
+<td>4</td>
+<td>800</td>
+<td><strong>224 s</strong> (≈ 1/4 ×)</td>
+<td>💀 thrash</td>
+</tr>
+<tr class="odd">
+<td>8</td>
+<td>1600</td>
+<td><strong>108 s</strong> (≈ 1/8 ×)</td>
+<td>💀 thrash</td>
+</tr>
+</tbody>
+</table>
+<p><strong>관찰</strong>:</p>
+<ol type="1">
+<li><strong>Avg JCT 가 1/N 로 감소</strong> — M/M/c 큐잉 이론과 정합 (병렬 처리로 variance ↓).</li>
+<li><strong>Starvation 은 ρ-driven, cluster size 무관</strong> — pure shortest-first 가 모든 size 에서 thrash.</li>
+<li><strong>8 GPU 에서 bucket 변형이 살짝 우위</strong> (106.4 vs FIFO 108.2) — 큰 cluster 에서 reorder 가 실제 유의미한 작은 차이 발생.</li>
+</ol>
+<p>→ <strong>본 연구 finding 은 cluster size 에 invariant</strong>. ρ 만 핵심 변수.</p>
+<h3 id="74bis-tail-latency-trade-off">7.4bis Tail latency trade-off</h3>
 <p>Mild contention 에서 bucket 변형 (SrtfSlo / MetaSrtfSlo) 은 FIFO 와 동일 — bucket overhead 가 SRTF 의 평균 우월성을 희석. 그러나 heavy contention 에서는 유일한 안전 옵션.</p>
 <p>2 GPU 실험 (§7.1) 의 tail 분석:</p>
 <ul>

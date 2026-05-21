@@ -128,7 +128,22 @@ score = w_size · (r / global_avg)             # SJF bias
 
 ![Scheduler cards](figures/algo_pseudocode_grid.png)
 
-### 3.4 SLO Bucket 변형 (실제 winning 디자인)
+### 3.4 Placement 정책에 관한 결정 (의도적 단순화)
+
+본 연구는 **scheduling 정책**만 변경하고 GPU placement 는 Blox 기본 (free GPU 중 첫 매칭) 유지. 이유:
+
+- 본 워크로드의 모든 잡이 `multigpu=False` → 1 GPU 만 요구
+- 1-GPU 잡 + N free GPUs → "어느 GPU 에 넣을지" 의 placement decision 이 **latency 측면에서 무의미**
+- §7.5 scale-up sweep 도 이 관찰을 confirm: cluster size 가 변해도 알고리즘 ranking 동일
+
+**Placement 가 의미를 가지려면** 다음 조건이 필요 (본 연구 범위 밖, 향후 과제):
+- multi-GPU 잡 (tensor / pipeline parallel) — consolidated vs scattered 선택
+- NUMA / topology 인지 — 같은 머신 내 GPU 우선
+- 메모리 fragmentation 회피
+
+향후 multi-GPU 워크로드 추가 시 SLO-aware placement (urgent 잡에 consolidated, 일반 잡에 scattered) 가 의미 있을 것.
+
+### 3.5 SLO Bucket 변형 (실제 winning 디자인)
 
 Knee-SLO 의 continuous urgency 가 heavy contention 에서 **urgency saturation** 으로 LJF-like 로 degenerate 하는 문제 (§5.1) 를 해결하기 위해, 다음 **discrete bucket** 디자인을 채택.
 
@@ -319,7 +334,26 @@ predicted_dur = β_0 + β_steps·steps + β_imgs·imgs
 
 **Pure shortest-first 가 ρ ≥ 2× 에서 catastrophic starvation 으로 thrash 하는 것은 scheduling 이론의 고전적 결과** (SRTF 는 closed batch 에서만 최적). Bucket 변형이 이를 stable 하게 회피.
 
-### 7.4 Tail latency trade-off
+### 7.4 Scale-invariance — 같은 ρ, 더 큰 cluster
+
+ρ ≈ 2.6× 를 유지하면서 cluster + load 를 비례 확대했을 때 알고리즘 ranking 이 변하는가?
+
+![Scale sweep](figures/scale_sweep.png)
+
+| GPU | load | FIFO / Bucket Avg | LAS / SRTF / MetaSrtf |
+| --- | ---- | ----------------- | --------------------- |
+| 1   | 200  | **919 s** | 💀 thrash |
+| 4   | 800  | **224 s** (≈ 1/4 ×) | 💀 thrash |
+| 8   | 1600 | **108 s** (≈ 1/8 ×) | 💀 thrash |
+
+**관찰**:
+1. **Avg JCT 가 1/N 로 감소** — M/M/c 큐잉 이론과 정합 (병렬 처리로 variance ↓).
+2. **Starvation 은 ρ-driven, cluster size 무관** — pure shortest-first 가 모든 size 에서 thrash.
+3. **8 GPU 에서 bucket 변형이 살짝 우위** (106.4 vs FIFO 108.2) — 큰 cluster 에서 reorder 가 실제 유의미한 작은 차이 발생.
+
+→ **본 연구 finding 은 cluster size 에 invariant**. ρ 만 핵심 변수.
+
+### 7.4bis Tail latency trade-off
 
 Mild contention 에서 bucket 변형 (SrtfSlo / MetaSrtfSlo) 은 FIFO 와 동일 — bucket overhead 가 SRTF 의 평균 우월성을 희석. 그러나 heavy contention 에서는 유일한 안전 옵션.
 
