@@ -14,3 +14,23 @@ trace-data/
 venv/
 .DS_Store
 
+
+# v2 results - experiment logs are too large
+experiment_logs/
+*.bak
+
+# raw simulator pickle cache  
+philly_jobs_*.pickle
+
+# old v1 baseline duplicates
+baseline_*.json
+
+# Heavy per-experiment artifacts (1MB+ each)
+# Keep job_stats / responsivness which plots use
+*_cluster_stats.json
+*_custom_metrics.json
+*_run_time_stats.json
+
+# Old v1 result format (already archived)
+genai_*_load_*_job_stats.json
+genai_*_load_*_responsivness.json

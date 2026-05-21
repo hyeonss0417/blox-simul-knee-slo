@@ -22,6 +22,19 @@ SCHEDULER_MAP = {
     "Las": schedulers.Las,
     "Srtf": schedulers.Srtf,
     "SloScoring": schedulers.SloScoring,
+    "KneeSlo": schedulers.KneeSlo,
+    "SjfTotal": schedulers.SjfTotal,
+    "Edf": schedulers.Edf,
+    "Llf": schedulers.Llf,
+    "KneeSloNonPreempt": schedulers.KneeSloNonPreempt,
+    "KneeSloClass": schedulers.KneeSloClass,
+    "Hrrn": schedulers.Hrrn,
+    "KneeSloAdaptive": schedulers.KneeSloAdaptive,
+    "KneeSloClassDur": schedulers.KneeSloClassDur,
+    "LasSlo": schedulers.LasSlo,
+    "SrtfSlo": schedulers.SrtfSlo,
+    "MetaSrtf": schedulers.MetaSrtf,
+    "MetaLasSlo": schedulers.MetaLasSlo,
 }
 
 
@@ -37,10 +50,32 @@ def parse_args(parser):
     parser.add_argument("--exp-prefix", type=str)
     parser.add_argument("--load", type=int)
     parser.add_argument("--simulate", action="store_true")
-    parser.add_argument("--round-duration", type=int, default=300)
+    parser.add_argument("--round-duration", type=int, default=10)
     parser.add_argument("--start-id-track", type=int, default=3000)
     parser.add_argument("--stop-id-track", type=int, default=4000)
     return parser.parse_args()
+
+
+def _sync_scheduler_state(scheduling_policy, job_state):
+    """Sync simulation clock and completed job stats to the scheduler."""
+    # Update wall-clock time for SLO deadline calculations
+    if hasattr(scheduling_policy, "current_time"):
+        scheduling_policy.current_time = job_state.time
+
+    # Feed completed job durations for profiled latency updates
+    if not hasattr(scheduling_policy, "update_profiled_latency"):
+        return
+    newly_finished = set(job_state.finished_job.keys()) - getattr(
+        scheduling_policy, "_already_fed", set()
+    )
+    for jid in newly_finished:
+        if jid in job_state.job_runtime_stats:
+            scheduling_policy.update_profiled_latency(
+                job_state.job_runtime_stats[jid]
+            )
+    if not hasattr(scheduling_policy, "_already_fed"):
+        scheduling_policy._already_fed = set()
+    scheduling_policy._already_fed.update(newly_finished)
 
 
 def main(args):
@@ -93,6 +128,7 @@ def main(args):
         job_state.add_new_jobs(accepted_jobs)
         new_job_schedule = scheduling_policy.schedule(job_state, cluster_state)
         utils.prune_jobs(job_state, cluster_state, blox_instance)
+        _sync_scheduler_state(scheduling_policy, job_state)
         new_job_schedule = scheduling_policy.schedule(job_state, cluster_state)
         to_suspend, to_launch = placement_policy.place(
             job_state, cluster_state, new_job_schedule
@@ -103,7 +139,9 @@ def main(args):
         utils.collect_cluster_job_metrics(job_state, cluster_state)
         utils.track_finished_jobs(job_state, cluster_state, blox_instance)
         blox_instance.exec_jobs(to_launch, to_suspend, cluster_state, job_state)
-        args.round_duration = 300
+        # Round duration is taken from --round-duration CLI arg.  v1 had
+        # this hardcoded to 300 inside the loop, which silently broke
+        # `--round-duration` overrides.  Keep external value here.
         job_state.time += args.round_duration
         cluster_state.time += args.round_duration
         blox_instance.time += args.round_duration

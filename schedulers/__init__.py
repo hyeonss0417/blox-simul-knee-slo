@@ -4,3 +4,15 @@ from .srtf import *
 from .optimus import *
 from .tiresias import *
 from .slo_scoring import *
+from .knee_slo import *
+from .sjf import *
+from .edf import *
+from .llf import *
+from .knee_slo_nonpreempt import *
+from .knee_slo_class import *
+from .hrrn import *
+from .knee_slo_adaptive import *
+from .knee_slo_classdur import *
+from .las_slo import *
+from .srtf_slo import *
+from .meta_pred import *

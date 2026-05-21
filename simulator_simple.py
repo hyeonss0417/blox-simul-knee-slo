@@ -39,14 +39,22 @@ class SimulatorRunner(simulator_pb2_grpc.SimServerServicer):
         acceptance_policies,
         model_class_split=(34, 33, 33),
         ipaddr_resource_manager="localhost",
-        exponential=True,
+        # exponential=True was the v1 default but it overwrote the
+        # trace's real inference duration with a gavel-like training-size
+        # synthetic duration (~30min–150h).  For inference experiments we
+        # use the actual exec_time from the Alibaba 2026 GenAI trace
+        # (~12–33 s).  Re-enable only for synthetic training stress tests.
+        exponential=False,
         multigpu=False,
         small_trace=False,
         placement=True,
         prioritize=False,
-        round_duration=300,
-        number_of_machines=32,
-        gpus_per_machine=4,
+        round_duration=10,   # was 300 (5min) for training; 10s for inference
+        # Cluster size — overridable via env var so we can stress-test
+        # inference workloads on a smaller cluster without rebuilding.
+        # Default 32×4=128 (training); set BLOX_NUM_MACHINES / BLOX_GPUS_PER_MACHINE.
+        number_of_machines=int(os.environ.get("BLOX_NUM_MACHINES", "32")),
+        gpus_per_machine=int(os.environ.get("BLOX_GPUS_PER_MACHINE", "4")),
         memory_per_machine=16,
         is_numa_available=False,
         num_cpu_cores=16,
@@ -421,6 +429,12 @@ def parse_args(parser):
         type=int,
         help="Simulator RPC port to fetch jobs",
     )
+    parser.add_argument(
+        "--round-duration",
+        default=10,
+        type=int,
+        help="Per-round time advance in seconds (10s for inference, 300s for training)",
+    )
     args = parser.parse_args()
     return args
 
@@ -442,6 +456,7 @@ def launch_server(args) -> grpc.Server:
             ["Place"],
             ["AcceptAll"],
             exp_prefix=args.exp_prefix,
+            round_duration=args.round_duration,
         ),
         server,
     )

@@ -107,10 +107,14 @@ def parse_jobs(
             # we are summing across jobs
             if not sum_attempts or i == len(j["attempts"]) - 1:
 
-                # gavel/gandiva like workload
+                # gavel/gandiva like workload filter
+                # For training: filter very short (<31min) and very long (>6.9day) jobs
+                # For inference: allow short jobs (>1s), filter only invalid ones
+                min_duration = 1  # allow inference jobs (>=1s)
+                max_duration = math.pow(10, 4) * 60  # ~6.9 days
                 if (
-                    duration_sum_seconds <= math.pow(10, 1.5) * 60
-                    or duration_sum_seconds >= math.pow(10, 4) * 60
+                    duration_sum_seconds <= min_duration
+                    or duration_sum_seconds >= max_duration
                 ):
                     continue
 

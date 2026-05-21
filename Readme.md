@@ -1,196 +1,98 @@
-# Blox
-This repository contains the source code implementation of the Eurosys 2024 paper "Blox: A Modular Toolkit for Deep Learning Schedulers". This work was done as part of Microsoft Research's [Project Fiddle](https://https://aka.ms/msr-fiddle). This source code is available under the [MIT License](LICENSE.txt).
+# Knee-SLO: Non-Oracle SLO-Aware Scheduling for GPU Inference
 
-Blox provides a modular framework for implementing deep learning research schedulers. Blox provides modular abstractions which can be easily swapped/modified to enable researchers to implement novel scheduling and placement policies.
+연세대 26-1 컴퓨터종합설계 캡스톤 — 팀 **젠슨황팀** (윤영준, 박준열, 전현성, 부광민)
 
-### Abstraction Provided
-* Job Admission Policy - Allows researchers to implement any admission policy and provides an interface to accept jobs.
-* Cluster Management - Handle addition or deletion of available nodes.
-* Job Scheduling Policy - Implement scheduling policy, i.e., deciding which jobs to run.
-* Job Placement Policy - Implement Placement policy, i.e., deciding which specific GPUs to run a job.
-* Job Launch and Preemption - Launch/Preempt specific jobs on any node in the cluster.
-* Metric Collection - Collect any metric that are needed to make informed placement or launch decisions.
+기반: [Blox simulator (EuroSys '24)](https://github.com/ericjypark/blox-simul)
+워크로드: Alibaba 2026 GenAI inference trace (Stable Diffusion serving)
 
-### Using blox
+## 📄 결과 보고서
 
-Components of blox are designed to be easily swappable based on different objective. However, from experience, most of existing deep learning schedulers can be implemented by adding a new scheduling policy and modifying the placement.
+- **Markdown**: [`docs/report_v2.md`](docs/report_v2.md)
+- **HTML (권장)**: [`docs/report_v2.html`](docs/report_v2.html) — 사이드바 TOC + 임베드 차트
 
+## 🎯 핵심 발견
 
-### Blox Simulator 
+| 시나리오 | 결과 | 본문 |
+| -------- | ---- | ---- |
+| Closed batch 추론 (4 GPU, 200/hr) | ⭐ **MetaSrtf (non-Oracle) = oracle SRTF: 40.1s** | §9bis |
+| Open over-load (16 GPU, 4000/hr) | 🛡️ bucket 변형이 LAS/SRTF starvation 회피 | §9ter |
+| Metadata predictor | R² 0.394 (category-mean baseline 대비 26% 더 정확) | §9quater |
+| 합성 training-like | LAS 가 Knee 모든 변형 압도 (negative) | §4–§8 |
+| 단일-pool 추론 | 모든 17 개 알고리즘 동등 (under-saturated) | §9 |
 
-For large scale experiments it is often the practise to simulate how a policy will behave under different loads. Blox also provides a built in simulator for this case. 
-Simulator for blox is implemented in _simulator.py_. Researchers can configure the load values, load arrival patterns.
+## 🧠 알고리즘
 
+- `schedulers/knee_slo.py` — 메인 알고리즘 (3-zone urgency × bucket × LAS hybrid)
+- `schedulers/knee_slo_{nonpreempt,class,classdur,adaptive}.py` — 변형
+- `schedulers/{las_slo,srtf_slo,meta_pred}.py` — bucket-based + metadata-pred 변형
+- `schedulers/{sjf,edf,llf,hrrn}.py` — 추가 baselines
 
-### Blox utilities
+## 🚀 재현
 
-Blox already has several plotting and metric parsing utilities. Based on configurations, blox will automatically output metrics like Job Completion Time and Job Completion CDFs. 
+```bash
+# 1. 환경 준비
+source venv/bin/activate
 
-### Writing a simulator in Blox
+# 2. Metadata predictor 학습 (offline, ~1s)
+python build_metadata_predictor.py
 
-For implementing a new scheduler in Blox, a user first needs to determine in what part of the scheduler do they want to modify. 
+# 3. 단일 실험 (예: closed batch MetaSrtf)
+BLOX_NUM_MACHINES=2 BLOX_GPUS_PER_MACHINE=2 \
+    SCHED=MetaSrtf EXP_PREFIX=test PORT_BASE=50050 \
+    LOAD=200 START=10 STOP=60 ROUND_DURATION=10 \
+    bash run_one_experiment.sh
 
-Once the user has determined the specific location of their contribution. They can look at the following guide to determine, what code do they need to modidy. 
-- Following is the location of files - 
-- Scheduling Policy - /schedulers
-- Placement Policy - /placement
-- Workload Policy - /workload
-- :Admission Policy - /admission_control
+# 4. 그리드 (Wave 1~5)
+bash run_all_waves.sh
 
-
-For an example users should look at `las_scheduler.py` which implements Least Attained Service scheduler.
-
-### Running Blox
-
-Blox has two modes for running. One real cluster workload and second simulator. 
-
-##### Simulation Mode
-
-The simplest way to get started with Blox is in simulation mode. 
-
-The following code will run LAS scheduling policy in simulation mode on the Philly Trace with jobs sent with load average of 1.0
-
-On one terminal launch - 
-
-```
-PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python python simulator_simple.py --cluster-job-log ./cluster_job_log --sim-type trace-synthetic --jobs-per-hour 1 --exp-prefix test
+# 5. 보고서 갱신
+python generate_summary.py
+python compile_final_report.py
+python build_html.py
 ```
 
-On the second terminal launch - 
+자세한 재현 방법: 보고서 부록 A.
+
+## 📊 파일 구조
 
 ```
-PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python python las_scheduler.py --simulate --load 1 --exp-prefix test
+schedulers/             스케줄러 구현
+placement/              GPU placement 정책
+workload/               Workload 생성 (Alibaba trace 변환 포함)
+blox/                   Blox 시뮬레이터 코어 + gRPC stubs
+simulator_simple.py     시뮬레이터 진입점
+run_scheduler.py        스케줄러 진입점
+run_one_experiment.sh   단일 실험 launcher
 
-```
+# 그리드 / 분석
+run_grid.sh             Wave 1: Knee 하이퍼파라미터 그리드
+run_grid_wave2.sh       Wave 2: 알고리즘 확장
+run_grid_wave3.sh       Wave 3: 부하 민감도
+run_grid_wave4.sh       Wave 4: 극단 / 조합 변형
+run_grid_wave5.sh       Wave 5: SLO 24h 재캘리브레이션
+run_grid_inference.sh   Wave R: 실제 추론 워크로드
+run_meta_win.sh         Meta-Win: 16 GPU stability test
+run_all_waves.sh        Master orchestrator
 
-Make sure only one instance of each is running on a machine/docker container. We use fixed GRPC ports to communicate, if more than one are launched there could be some unintended consequences.
+# 시각화 / 리포트
+plot_v2_results.py      알고리즘 비교 그래프
+plot_w3_loadsweep.py    부하 민감도 곡선
+plot_slo_curves.py      다중 SLO target curve
+plot_inference.py       추론 결과 시각화
+plot_algorithm.py       알고리즘 동작 시각화 (urgency, zones 등)
+generate_summary.py     보고서 자동 표/findings 갱신
+compile_final_report.py 최종 exec summary 합성
+build_html.py           HTML 변환
 
-
-##### Cluster mode
-On the node where we are running the scheduler
-
-```
-PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python python las_scheduler.py --expe-prefix cluster_run
-```
-
-On each node in the cluster launch 
-```
-PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python python node_manager.py --ipaddr ip_address_scheduler
- ```
-In certain cases you would want to specifically give the interface you want the node manager to bind. For ex- on AWS to bind to the local ip for communication you might want to select eth0, similarly on Cloudlab the preferred interface will be enp94s0f0.
-In those cases launch node_manager in the following way. 
-
-```
-PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python python node_manager.py --ipaddr ip_address_scheduler --interface interface_name
-```
-
-
-### Details for reproducing results for artifacts
-These are instructions for reproducing artifacts for Blox.
-#### Installation 
-Blox uses gRpc, Matplotlib to communicate and Plot several collected Metric. 
-We suggest the users to create a virtual environment to install the dependencies.
-```
-pip install grpcio
-pip install matplotlib
-pip install pandas==1.3.0
-pip install grpcio-tools
+# 데이터
+cluster_job_log         Alibaba 2026 GenAI trace (변환된 Philly JSON)
+metadata_pred.json      훈련된 prediction 결과 (lookup table)
+docs/figures_v2/        모든 그래프 PNG/PDF
+docs/report_v2.{md,html} 최종 보고서
 ```
 
-###### Running Blox Code
-To perform simulation.
-In one terminal window.
-```
-PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python python simulator.py --cluster-job-log ./cluster_job_log --sim-type trace-synthetic --jobs-per-hour 6 --exp-prefix test
-```
-In second terminal window. 
-```
-PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python python blox_new_flow_multi_run.py --simulate --load 6 --exp-prefix test
-```
-The above experiment will take around 8hrs to run and will generate CDF, JCT and runtime for Fifo, LAS and Optimus Scheduler as in Figure 6. 
+## 📝 라이센스 & 인용
 
+원본 Blox는 MIT 라이센스. 본 fork의 추가 코드는 같은 라이센스를 따른다.
 
-For running LAS scheduler with different acceptance policy. This will provide Avg JCTs for Figure 12 and Figure 13.
-
-
-
-Replicating only Figure 12
-
-In one terminal 
-```
-PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python python simulator_acceptance_policy.py --cluster-job-log ./cluster_job_log --sim-type trace-synthetic --jobs-per-hour 6 --exp-prefix test
-```
-In second terminal 
-```
-PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python python blox_new_flow_multi_run.py --simulate --load 6 --exp-prefix test
-```
-
-
-
-For running LAS scheduler with different acceptance policy. This will provide Avg JCTs for Figure 12 and Figure 13.
-In one terminal 
-```
-PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python python simulator_dual_load.py --cluster-job-log ./cluster_job_log --sim-type trace-synthetic --jobs-per-hour 6 --exp-prefix test
-```
-In second terminal 
-```
-PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python python blox_new_flow_multi_run.py --simulate --load 6 --exp-prefix test
-```
-
-
-#### Running Multiple Solutions in Parallel 
-Blox supports running multiple simulations on the same machine. The authors will need to specify the port numbers correctly. 
-Here is an example to run multiple simulations. Run the following commands in different terminals. 
-
-Running First simulation.
-```
-python simulator_simple.py --cluster-job-log ./cluster_job_log --sim-type trace-synthetic --jobs-per-hour 1 --exp-prefix test --simulator-rpc-port 50511
-```
-```
-python las_scheduler.py --simulate --load 1 --exp-prefix test --simulator-rpc-port 50511
-```
-
-Running Second Simulation.
-```
-python simulator_simple.py --cluster-job-log ./cluster_job_log --sim-type trace-synthetic --jobs-per-hour 1 --exp-prefix test --simulator-rpc-port 50501
-```
-```
-python las_scheduler.py --simulate --load 1 --exp-prefix test --simulator-rpc-port 50501
-```
-#### Running cluster experiments in Blox
-Blox allows users to run experiments on the real cluster. However, running experiments on real cluster requires additional setup.
-
-First on a node launch the scheduler you will like to run. For example - 
-```
-python las_scheduler_cluster.py --round-duration 30 --start-id-track 0 --stop-id-track 10
-```
-The above command will launch the cluster scheduler. 
-
-Next on each node which you plan to run the jobs on, start redis-server and launch the job-manager.
-```
-redis-server
-```
-Post starting redis-server, you need to launch the node manager.
-
-```
-python node_manager.py --ipaddr {ip_addr_of_scheduler} --interface {network_interface_to_use}
-```
-For starting the node manager, we need two mandatory arguments, the IP Address of the scheduler and the network interface you want to use the node manager to use. 
-To get the network interface you can run `ip a`.
-
-Finally you need to send the jobs to the the scheduler. For an example of how to submit jobs you can look [here](https://github.com/msr-fiddle/blox/blob/main/blox/deployment/job_submit_script.py).
-
-To launch a job on the cluster there are two mandatory fields to blox.
-First is the launch_command, launch_command gives the command to launch.
-Next you can pass any command line arguments with Blox, by using the launch_params key, as done in the job_submit_script.py.
-For each application blox also sets following environment variables. 
-For multiple jobs blox will launch the command multiple times. However, with differnt environment variables.
-The users are responsible to configure the environment variables themselves. Following is the enviroment variable to query, and their description. 
-```
-local_gpu_id : specifies the local gpu id this job is running
-master_ip_address: in case of a distributed job this is the master-ip-address to use.
-world_size: total number of workers running this command
-dist_rank: rank of the current process
-job_id: job id assigned to this particular job by blox
-local_accessible_gpu: all gpus that can accessed by this job. This is especially useful with CUDA_VISIBLE_DEVICES.
-``` 
+원본 README는 [`README_midterm.md`](README_midterm.md) 참조.
