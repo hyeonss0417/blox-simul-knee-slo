@@ -218,6 +218,26 @@ predicted_dur = β_0 + β_steps·steps + β_imgs·imgs
 
 **26 % MAE 개선** + R² 가 음수에서 +0.394 로 회복.
 
+### 4.3bis Heavier ML 으로 더 개선할 수 있을까? — No
+
+Linear regression 의 R²=0.39 가 metadata feature space 의 천장인지 검증. 같은 train/test split (잡 0–2999 train, 3000+ test) 에서 비교:
+
+![Predictor comparison](figures/predictor_comparison.png)
+
+| Model | MAE | MAPE | R² |
+| ----- | --- | ---- | -- |
+| Mean baseline | 12.86 s | 45.3 % | −0.080 |
+| **Linear regression** ⭐ | **9.24 s** | 35.0 % | **0.394** |
+| CatBoost (500 iter, depth=6) | 9.38 s | 34.2 % | 0.361 |
+| LightGBM (500 iter, depth=6) | 9.54 s | 34.5 % | 0.367 |
+
+→ **Tree 기반 boosting 이 linear regression 보다 약간 worse**. 이유:
+1. **Feature space 가 너무 simple** (6 features, 2 categorical) → linear 가 표현력 충분
+2. **Train 3000 잡** 으로 tree 모델 hyperparams 가 약간 overfit
+3. **R² 0.39 가 본 metadata feature set 의 ceiling** — 61 % residual variance 는 GPU contention / queue dynamics 같은 **fundamental noise** (어떤 metadata-only 모델도 잡을 수 없음)
+
+honest message: **추가 prediction 정확도 개선은 더 좋은 모델이 아니라 더 풍부한 feature** (GPU 종류, batch info, model 내부 spec, 실시간 시스템 상태) 가 필요. 본 trace 에서는 그 features 가 없음.
+
 ### 4.4 가장 강력한 features (coefficient × std)
 
 | Feature | Effect (s) | 의미 |
