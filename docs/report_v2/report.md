@@ -153,7 +153,28 @@ J1(짧고 새), J2(짧고 오래), J3(중간), J4(크고 새), J5(크고 SLO 초
 
 ⚠️ 차이 1.7 % 는 100 개 sample noise. 본문은 **"MetaSrtf ≈ Oracle SRTF"** 라는 표현이 정확.
 
-### 3.3 Cluster size 무관 — 동일한 ranking 이 모든 size 에 적용
+### 3.3 왜 추론에서 차이가 21 % 인가 — 잡 변동성 한계
+
+본 trace 의 추론 잡 duration 분포:
+
+![CoV analysis](figures/cov_analysis.png)
+
+- mean 28.7 s, median 23 s, std 20.85 s
+- **CoV (coefficient of variation) = 0.73** — 비교적 균일
+
+Pollaczek-Khinchine 큐잉 이론에서 **SJF/SRTF 가 FCFS 대비 평균 wait 절약 ≈ c²/2** (c = CoV):
+
+| Workload | CoV | 이론 SJF gain | 실측 |
+| -------- | --- | ------------- | ---- |
+| **본 trace (추론)** | **0.73** | ~26 % | **21 %** ✓ |
+| Exponential 분포 | 1.0 | ~30 % | — |
+| 합성 training-like (부록 B.1) | ~1.7 | ~50 % | **49 %** ✓ |
+
+→ **추론 차이가 작은 본질적 이유**: 잡들이 너무 균일 (max/min 567× 지만 90 % 가 mean ±2× 안). 변동성이 큰 워크로드 (짧은 이미지 + 긴 LLM + 매우 긴 비디오 혼합) 에서는 **2 배 이상의 gain** 예상.
+
+본 21 % gain 은 알고리즘 한계가 아니라 **워크로드 변동성 한계 — 이론 천장 (26 %) 의 80 % 회복**.
+
+### 3.4 Cluster size 무관 — 동일한 ranking 이 모든 size 에 적용
 
 같은 ρ=2.6× 를 유지하며 cluster 를 8× 까지 키워도:
 

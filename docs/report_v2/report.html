@@ -199,7 +199,8 @@ li { margin: 4px 0; }
 <li class="toc-h2"><a href="#3-핵심-결과">3. 핵심 결과</a></li>
 <li class="toc-h3"><a href="#31-contention-regime-별-결과--main-finding">3.1 Contention regime 별 결과 (★ main finding)</a></li>
 <li class="toc-h3"><a href="#32-2-gpu-깊은-분석--metasrtf-가-oracle-srtf-와-동등">3.2 2 GPU 깊은 분석 — MetaSrtf 가 Oracle SRTF 와 동등</a></li>
-<li class="toc-h3"><a href="#33-cluster-size-무관--동일한-ranking-이-모든-size-에-적용">3.3 Cluster size 무관 — 동일한 ranking 이 모든 size 에 적용</a></li>
+<li class="toc-h3"><a href="#33-왜-추론에서-차이가-21--인가--잡-변동성-한계">3.3 왜 추론에서 차이가 21 % 인가 — 잡 변동성 한계</a></li>
+<li class="toc-h3"><a href="#34-cluster-size-무관--동일한-ranking-이-모든-size-에-적용">3.4 Cluster size 무관 — 동일한 ranking 이 모든 size 에 적용</a></li>
 <li class="toc-h2"><a href="#4-왜-동작하는가--메커니즘">4. 왜 동작하는가 — 메커니즘</a></li>
 <li class="toc-h3"><a href="#41-bucket-이-starvation-을-막는-원리">4.1 Bucket 이 starvation 을 막는 원리</a></li>
 <li class="toc-h3"><a href="#42-submission-time-predictor--oracle-없이-40-회복">4.2 Submission-time predictor — Oracle 없이 40% 회복</a></li>
@@ -518,7 +519,47 @@ li { margin: 4px 0; }
 </table>
 <p>→ <strong>MetaSrtf 가 oracle SRTF 와 평균 동등</strong> (63.2 vs 64.3, noise 영역). 단 oracle 은 tail 이 더 좋음 (P99 388 vs 503) — bucket variant 가 이 trade-off 를 해결 (P99 198, tail 절반 압축).</p>
 <p>⚠️ 차이 1.7 % 는 100 개 sample noise. 본문은 <strong>"MetaSrtf ≈ Oracle SRTF"</strong> 라는 표현이 정확.</p>
-<h3 id="33-cluster-size-무관--동일한-ranking-이-모든-size-에-적용">3.3 Cluster size 무관 — 동일한 ranking 이 모든 size 에 적용</h3>
+<h3 id="33-왜-추론에서-차이가-21--인가--잡-변동성-한계">3.3 왜 추론에서 차이가 21 % 인가 — 잡 변동성 한계</h3>
+<p>본 trace 의 추론 잡 duration 분포:</p>
+<p><img src="figures/cov_analysis.png" alt="CoV analysis" /></p>
+<ul>
+<li>mean 28.7 s, median 23 s, std 20.85 s</li>
+<li><strong>CoV (coefficient of variation) = 0.73</strong> — 비교적 균일</li>
+</ul>
+<p>Pollaczek-Khinchine 큐잉 이론에서 <strong>SJF/SRTF 가 FCFS 대비 평균 wait 절약 ≈ c²/2</strong> (c = CoV):</p>
+<table>
+<thead>
+<tr class="header">
+<th>Workload</th>
+<th>CoV</th>
+<th>이론 SJF gain</th>
+<th>실측</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>본 trace (추론)</strong></td>
+<td><strong>0.73</strong></td>
+<td>~26 %</td>
+<td><strong>21 %</strong> ✓</td>
+</tr>
+<tr class="even">
+<td>Exponential 분포</td>
+<td>1.0</td>
+<td>~30 %</td>
+<td>—</td>
+</tr>
+<tr class="odd">
+<td>합성 training-like (부록 B.1)</td>
+<td>~1.7</td>
+<td>~50 %</td>
+<td><strong>49 %</strong> ✓</td>
+</tr>
+</tbody>
+</table>
+<p>→ <strong>추론 차이가 작은 본질적 이유</strong>: 잡들이 너무 균일 (max/min 567× 지만 90 % 가 mean ±2× 안). 변동성이 큰 워크로드 (짧은 이미지 + 긴 LLM + 매우 긴 비디오 혼합) 에서는 <strong>2 배 이상의 gain</strong> 예상.</p>
+<p>본 21 % gain 은 알고리즘 한계가 아니라 <strong>워크로드 변동성 한계 — 이론 천장 (26 %) 의 80 % 회복</strong>.</p>
+<h3 id="34-cluster-size-무관--동일한-ranking-이-모든-size-에-적용">3.4 Cluster size 무관 — 동일한 ranking 이 모든 size 에 적용</h3>
 <p>같은 ρ=2.6× 를 유지하며 cluster 를 8× 까지 키워도:</p>
 <p><img src="figures/scale_sweep.png" alt="Scale sweep" /></p>
 <table>
