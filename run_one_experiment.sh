@@ -76,4 +76,20 @@ kill $SIM_PID 2>/dev/null || true
 sleep 1
 kill -9 $SIM_PID 2>/dev/null || true
 wait $SIM_PID 2>/dev/null || true
-echo "[$EXP_PREFIX] done"
+
+# Auto-organize result files into results/<category>/ based on prefix.
+case "$EXP_PREFIX" in
+    v2_*)        DEST="results/v2_training" ;;
+    inf_*)       DEST="results/inference_singlepool" ;;
+    co_*)        DEST="results/contention" ;;
+    sw_*)        DEST="results/contention_sweep" ;;
+    bb_*)        DEST="results/beat_baseline" ;;
+    w3_*)        DEST="results/load_sweep" ;;
+    mw_*|mw2_*)  DEST="results/meta_win" ;;
+    closed_*)    DEST="results/closed_batch" ;;
+    *)           DEST="results/misc" ;;
+esac
+mkdir -p "$DEST"
+mv ${EXP_PREFIX}_*.json "$DEST/" 2>/dev/null || true
+
+echo "[$EXP_PREFIX] done → $DEST"

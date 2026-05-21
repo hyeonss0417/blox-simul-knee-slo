@@ -37,7 +37,7 @@ CONFIGS = [
 
 
 def load_jcts(prefix):
-    pat = f"{prefix}_*_*_accept_all_load_{LOAD}_job_stats.json"
+    pat = f"results/inference_singlepool/{prefix}_*_*_accept_all_load_{LOAD}_job_stats.json"
     m = glob.glob(pat)
     if not m:
         return None

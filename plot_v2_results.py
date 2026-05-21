@@ -81,7 +81,7 @@ KNOWN = {
 
 
 def _find(prefix, kind):
-    pattern = f"{prefix}_{START}_{STOP}_*_accept_all_load_{LOAD}_{kind}.json"
+    pattern = f"results/v2_training/{prefix}_{START}_{STOP}_*_accept_all_load_{LOAD}_{kind}.json"
     matches = glob.glob(pattern)
     return matches[0] if matches else None
 

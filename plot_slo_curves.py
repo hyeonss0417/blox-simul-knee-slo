@@ -34,7 +34,7 @@ PREFIXES = [
 
 
 def load_jcts(prefix):
-    pat = f"{prefix}_3000_3100_*_accept_all_load_8.0_job_stats.json"
+    pat = f"results/v2_training/{prefix}_3000_3100_*_accept_all_load_8.0_job_stats.json"
     m = glob.glob(pat)
     if not m:
         return None

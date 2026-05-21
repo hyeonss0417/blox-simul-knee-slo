@@ -25,7 +25,7 @@ ALGOS = [
 
 
 def load_setup_algo(setup, algo):
-    files = glob.glob(f"sw_{setup}_*_{algo}_*_accept_all_*_job_stats.json")
+    files = glob.glob(f"results/contention_sweep/sw_{setup}_*_{algo}_*_accept_all_*_job_stats.json")
     if not files:
         return None
     all_j = []

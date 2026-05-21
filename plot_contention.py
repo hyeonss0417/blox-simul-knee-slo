@@ -25,7 +25,7 @@ CONFIGS = [
 
 data = {}
 for prefix, label, color in CONFIGS:
-    pat = f"{prefix}_*_*_accept_all_load_200.0_job_stats.json"
+    pat = f"results/contention/{prefix}_*_*_accept_all_load_200.0_job_stats.json"
     m = glob.glob(pat)
     if not m:
         continue

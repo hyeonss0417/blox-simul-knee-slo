@@ -27,7 +27,7 @@ def load(load_jph, sched):
         }[sched]
     else:
         prefix = f"w3_l{load_jph}_{sched.lower()}"
-    pat = f"{prefix}_3000_3100_{sched}_accept_all_load_{load_jph}.0_job_stats.json"
+    pat = f"results/load_sweep/{prefix}_3000_3100_{sched}_accept_all_load_{load_jph}.0_job_stats.json"
     matches = glob.glob(pat)
     if not matches:
         return None

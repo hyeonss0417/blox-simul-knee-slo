@@ -79,7 +79,7 @@ SLO_TARGETS_H = [6, 12, 18, 24, 36, 48]
 
 
 def find(prefix, kind, load=DEFAULT_LOAD):
-    pat = f"{prefix}_{START}_{STOP}_*_accept_all_load_{load}_{kind}.json"
+    pat = f"results/v2_training/{prefix}_{START}_{STOP}_*_accept_all_load_{load}_{kind}.json"
     m = glob.glob(pat)
     return m[0] if m else None
 

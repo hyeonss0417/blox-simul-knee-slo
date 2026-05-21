@@ -94,6 +94,16 @@ docs/report_v2/         최종 보고서 폴더
   ├── report.html       사이드바 TOC + 임베드 차트
   ├── style.css         report HTML 스타일
   └── figures/          모든 PNG / PDF 차트
+results/                실험 결과 (JSON, 카테고리별 폴더)
+  ├── v2_training/      합성 training-like 워크로드 (Wave 1~5)
+  ├── inference_singlepool/   단일-pool 추론 (under-saturated)
+  ├── closed_batch/     2 GPU lightly-loaded closed batch
+  ├── contention/       2 GPU moderate over-load
+  ├── contention_sweep/ 1G/2G × 3 setups × 2 ranges sweep
+  ├── beat_baseline/    LasSlo/SrtfSlo vs LAS/SRTF 비교
+  ├── load_sweep/       Wave 3 부하 민감도
+  └── meta_win/         Meta-Win stability test
+archive/v1_genai/       v1 (mid-term) 결과
 ```
 
 ## 📝 라이센스 & 인용
