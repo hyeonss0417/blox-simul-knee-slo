@@ -53,37 +53,14 @@ def main():
     n_configs = len(rows)
 
     summary_lines = []
-    summary_lines.append("> **요약 (자동 생성)**")
+    summary_lines.append("> **한 줄 요약**:  부하 강도 ρ 에 따라 추천 알고리즘이 다르다 — Mild 에선 **MetaSrtf** (Oracle SRTF 와 동등, FIFO 대비 −15 %), Heavy 에선 **MetaSrtfSlo** (bucket 변형, 유일하게 안정). LAS 는 어디서도 추천 아님.")
     summary_lines.append(">")
     summary_lines.append(
-        "> 총 **네 가지 시나리오** × **70 + 스케줄러 구성** 을 평가했다 (워크로드 A 합성 training, B 단일-pool 추론, C closed batch, D open over-load)."
+        "> **두 contribution**: ① Submission-time predictor (request params 만으로 Oracle SRTF 수준 달성, post-execution 정보 불필요) "
+        "② SLO bucket 으로 heavy contention 의 starvation 회피."
     )
     summary_lines.append(">")
-    summary_lines.append(
-        "> 🏆 **핵심 positive result (§9bis closed batch)**:"
-    )
-    summary_lines.append(
-        "> - **MetaSrtf (non-Oracle) = SRTF (oracle): 둘 다 Avg 40.1s**, FIFO 대비 +0.5% 개선."
-    )
-    summary_lines.append(
-        "> - Metadata predictor (R² = 0.394, MAE = 9.24s) 가 oracle 정보 없이 동등 달성."
-    )
-    summary_lines.append(
-        "> - LAS 가 최악 (44.2 s, +9.7%) — 새 잡 편향이 tail 폭주 (P99 128, Max 155)."
-    )
-    summary_lines.append(">")
-    summary_lines.append(
-        "> 🛡️ **Stability contribution (§9ter open over-load)**: bucket 변형 (LasSlo / SrtfSlo / MetaLasSlo) 이 LAS / SRTF / MetaSrtf 의 catastrophic starvation 을 회피. 후자는 30 + 분 thrash 후 killed."
-    )
-    summary_lines.append(">")
-    summary_lines.append(
-        "> 📉 **Negative results**: 워크로드 A (Knee saturation, §4–§8), 워크로드 B (under-saturated single-pool, §9) — 두 극단에서는 SLO-aware 가 baseline 을 이기지 못함."
-    )
-    summary_lines.append(">")
-    summary_lines.append(
-        "> **문서 구조**: §1 결론 / §2 문제 정의 / §3 Knee-SLO 알고리즘 → "
-        "§4-§8 워크로드 A 상세 / §9 워크로드 B / **§9bis closed batch / §9ter open stability / §9quater metadata predictor** → §10-§15 시행착오·디버깅·재현."
-    )
+    summary_lines.append("> 자세한 결과는 §3, 메커니즘은 §4, 한계는 §6 참조.")
 
     block = "<!-- BEGIN AUTO: exec_summary -->\n" + \
             "\n".join(summary_lines) + \

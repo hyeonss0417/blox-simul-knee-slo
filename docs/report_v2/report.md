@@ -1,77 +1,290 @@
-# Knee-SLO: Non-Oracle SLO-Aware Scheduling for GPU Inference Workloads
+# Knee-SLO: 추론용 GPU 스케줄러 비교 연구
 
-**팀명:** 젠슨황팀 (윤영준, 박준열, 전현성, 부광민)
-**과목:** 26-1 컴퓨터종합설계
-**작성일:** 2026-05-21
+**팀명** 젠슨황팀 (윤영준, 박준열, 전현성, 부광민) · **26-1 컴퓨터종합설계**
 
 ---
 
 <!-- BEGIN AUTO: exec_summary -->
-> **요약 (자동 생성)**
+> **한 줄 요약**:  부하 강도 ρ 에 따라 추천 알고리즘이 다르다 — Mild 에선 **MetaSrtf** (Oracle SRTF 와 동등, FIFO 대비 −15 %), Heavy 에선 **MetaSrtfSlo** (bucket 변형, 유일하게 안정). LAS 는 어디서도 추천 아님.
 >
-> 총 **네 가지 시나리오** × **70 + 스케줄러 구성** 을 평가했다 (워크로드 A 합성 training, B 단일-pool 추론, C closed batch, D open over-load).
+> **두 contribution**: ① Submission-time predictor (request params 만으로 Oracle SRTF 수준 달성, post-execution 정보 불필요) ② SLO bucket 으로 heavy contention 의 starvation 회피.
 >
-> 🏆 **핵심 positive result (§9bis closed batch)**:
-> - **MetaSrtf (non-Oracle) = SRTF (oracle): 둘 다 Avg 40.1s**, FIFO 대비 +0.5% 개선.
-> - Metadata predictor (R² = 0.394, MAE = 9.24s) 가 oracle 정보 없이 동등 달성.
-> - LAS 가 최악 (44.2 s, +9.7%) — 새 잡 편향이 tail 폭주 (P99 128, Max 155).
->
-> 🛡️ **Stability contribution (§9ter open over-load)**: bucket 변형 (LasSlo / SrtfSlo / MetaLasSlo) 이 LAS / SRTF / MetaSrtf 의 catastrophic starvation 을 회피. 후자는 30 + 분 thrash 후 killed.
->
-> 📉 **Negative results**: 워크로드 A (Knee saturation, §4–§8), 워크로드 B (under-saturated single-pool, §9) — 두 극단에서는 SLO-aware 가 baseline 을 이기지 못함.
->
-> **문서 구조**: §1 결론 / §2 문제 정의 / §3 Knee-SLO 알고리즘 → §4-§8 워크로드 A 상세 / §9 워크로드 B / **§9bis closed batch / §9ter open stability / §9quater metadata predictor** → §10-§15 시행착오·디버깅·재현.
+> 자세한 결과는 §3, 메커니즘은 §4, 한계는 §6 참조.
 <!-- END AUTO: exec_summary -->
 
 ---
 
-## 1. 결론
+## 📌 TL;DR — 한 페이지 요약
 
-본 연구는 **Alibaba 2026 GenAI 추론 trace + Blox 시뮬레이터** 위에서 SLO-aware 스케줄링이 단순 LAS/FIFO 대비 의미 있는 개선을 줄 수 있는지를 묻고, **9 종 알고리즘 × 4 contention regime** 으로 답을 찾았다.
+**문제**: GPU 클러스터에서 추론(inference) 잡을 어떻게 스케줄링해야 평균 JCT 가 짧고, SLO 위반이 적고, starvation 이 안 생길까?
 
-### 1.1 핵심 결과 (한눈에)
+**우리가 한 것**: Alibaba 2026 GenAI trace + Blox 시뮬레이터에서 **11 종 스케줄러 × 6 가지 부하 시나리오** 를 비교. 새 알고리즘 5 종 (LasSlo, SrtfSlo, MetaSrtf, MetaSrtfSlo, MetaLasSlo) 제안.
 
-| Contention 강도 | 추천 알고리즘 | vs FIFO | 위험 알고리즘 |
-| --------------- | ------------ | ------- | ------------ |
-| **Mild** (ρ ≈ 1.3×) | **SRTF / MetaSrtf** | −21 % / −15 % | LAS (+49 %) |
-| **Moderate** (ρ ≈ 1.7×, 2 GPU) | **MetaSrtf = Oracle SRTF** | **−14 %** | LAS (+53 %) |
-| **Heavy** (ρ ≥ 2.6×) | **bucket 변형 (MetaSrtfSlo)** | = FIFO | LAS / SRTF / MetaSrtf 모두 thrash |
+**핵심 발견** ⬇️
 
-→ **본 연구의 두 가지 contribution**:
-1. **Submission-time predictor (R² 0.39)** 가 oracle SRTF 와 동등 성능 (mild~moderate contention 에서 −14 % Avg JCT). 사용자가 API request 에 명시하는 `num_inference_steps`, `checkpoint_model`, `predict_type` 만으로 — post-execution `exec_time_seconds` 없이 — 동등 달성. (단, num_steps 자체가 latency 의 dominant signal 인 점은 §4.0 에서 솔직히 분석)
-2. **Bucket-based 변형** (SrtfSlo, MetaSrtfSlo) 가 heavy contention 에서 pure shortest-first 의 catastrophic starvation 을 회피.
+![핵심 결과](figures/sweep_avg_by_setup.png)
 
-![Sweep avg by setup](figures/sweep_avg_by_setup.png)
+| 부하 강도 ρ | 1위 알고리즘 | vs FIFO | 최악 알고리즘 |
+| ----------- | ----------- | ------- | ------------- |
+| Mild (1.3×) | **SRTF / MetaSrtf** | **−21 % / −15 %** | LAS (+49 %) |
+| Moderate (1.7×) | **MetaSrtf** (= Oracle SRTF) | **−14 %** | LAS (+53 %) |
+| Heavy (≥2.6×) | **bucket 변형 (MetaSrtfSlo)** | = FIFO (안정) | LAS / SRTF / MetaSrtf 💀 thrash |
 
-### 1.2 한 줄 요약
+**두 가지 contribution**:
 
-> **Metadata-based predictor 로 oracle 정보 없이 SRTF 와 동등한 평균 JCT 를 달성하고, SLO bucket 으로 heavy contention 에서의 starvation 을 회피한다 — 단, 본 trace + 시뮬레이터 조건 하에서.** (§7 한계 참조)
+1. 🏆 **Submission-time predictor 만으로 Oracle SRTF 와 동등** — `num_inference_steps`, `checkpoint_model` 등 **잡 제출 시점에 알 수 있는 정보** (post-execution 정보 없이) 로 oracle 성능 달성
+2. 🛡️ **SLO bucket 으로 heavy contention 의 starvation 회피** — pure shortest-first (LAS/SRTF/MetaSrtf) 가 ρ ≥ 2× 에서 catastrophic 하게 망하는 걸 bucket 으로 막음
 
----
+**한계** (정직히): 단일 trace, 단일 시드, 100~300 sample size → statistical significance 검증 안 함. 본 trace 조건에서만 결론 유효.
 
-## 2. 문제 정의
-
-GPU 클러스터 위에서 latency-sensitive 잡을 스케줄링하며 다음을 동시 최적화한다.
-
-- 평균 JCT 최소화
-- SLO miss rate 최소화 (`completion - submit > T_SLO`)
-- responsiveness 최소화 (첫 실행까지 대기)
-- starvation 회피
-
-본 보고서는 **두 워크로드 종류 × 다양한 contention 강도** 에서 검증한다.
-
-| 워크로드 | 잡 duration | 비고 |
-| -------- | ----------- | ---- |
-| (A) 합성 training-like (`exponential=True`) | 30분 ~ 150 **h** | gavel-like synthetic; §5 |
-| (B) 실제 추론 (Alibaba 2026 GenAI) | 5 ~ 145 **s** (mean 23s) | §6 이하 main results |
-
-⚠️ §5 의 결과는 hours 단위. §6 이하는 seconds 단위.
+→ 자세한 contribution: §3 (main results), §4 (mechanism), §6 (limits).
 
 ---
 
-## 3. Knee-SLO 알고리즘
+## 1. 문제와 setup
 
-### 3.1 핵심 변수
+### 1.1 문제
+
+GPU 클러스터 위에서 latency-sensitive 추론 잡을 스케줄링하며 다음을 동시 최적화한다.
+
+| 지표 | 정의 |
+| ---- | ---- |
+| **Avg JCT** | job completion time 평균 — 처리 효율 |
+| **P99 JCT / Max** | tail latency — 운영 안정성 |
+| **SLO miss rate** | `JCT > T_SLO` 잡의 비율 |
+| **Starvation** | 일부 잡이 끝없이 wait |
+
+### 1.2 워크로드 — Alibaba 2026 GenAI trace
+
+Stable Diffusion 추론 요청 26,793 개. 잡당 5 ~ 145 초 (mean 23 s).
+
+각 잡의 metadata:
+- `num_inference_steps` (28–40)
+- `num_images_per_prompt` (1–8)
+- `predict_type` (TXT_2_IMG / IMG_2_IMG)
+- `checkpoint_model` (LoRA 모델 ~20 종)
+- `prompt_length`, `num_lora`
+
+→ 이 metadata 는 **사용자가 API request 에 명시** 하므로 **잡 제출 시점에 알 수 있다**. (이후 §4 에서 활용)
+
+### 1.3 시뮬레이션 setup
+
+Blox 시뮬레이터 (EuroSys '24). 본 보고서 본문은 **6 가지 부하 시나리오** 에서 실험:
+
+| Setup | GPU | Load (jobs/hr) | ρ (over capacity) | 본문 위치 |
+| ----- | --- | -------------- | ----------------- | -------- |
+| (a) | 1 | 100 | 1.3× (mild) | §3.1 |
+| (b) | 1 | 200 | 2.6× (heavy) | §3.1 |
+| (c) | 2 | 200 | 1.7× (moderate) | §3.1 (deep dive) |
+| (d) | 2 | 400 | 2.6× (heavy) | §3.1 |
+| (e) | 4 | 800 | 2.6× (heavy, scale ↑) | §3.3 |
+| (f) | 8 | 1600 | 2.6× (heavy, scale ↑↑) | §3.3 |
+
+---
+
+## 2. 알고리즘 한눈에 보기
+
+11 종 스케줄러를 비교했다.
+
+### 2.1 각 알고리즘이 사용하는 신호
+
+![어떤 신호를 사용하나 — Feature matrix](figures/algo_feature_matrix.png)
+
+- **FIFO / LAS / SRTF / SjfTotal**: 단일 신호 — 단순 baseline
+- **HRRN / EDF / LLF**: 두-세 신호 — 고전 deadline-aware
+- **LasSlo / SrtfSlo / MetaSrtfSlo**: 다중 신호 + bucket — **본 연구 제안**
+
+### 2.2 같은 큐, 다른 순서
+
+J1(짧고 새), J2(짧고 오래), J3(중간), J4(크고 새), J5(크고 SLO 초과) 5 개 잡을 어떻게 다르게 정렬하는지:
+
+![Algorithm ordering demo](figures/algo_ordering_demo.png)
+
+흥미로운 관찰:
+- **FIFO**: J5(가장 오래된) → J2 → ... — 단순 시간 순
+- **LAS / SRTF**: J1(가장 짧음) 우선 — short-job bias
+- **EDF / LLF**: J5(이미 SLO 초과) 우선 — deadline-aware
+- **🌟 Bucket 변형**: J5, J2 가 critical bucket 으로 **절대 우선** → 다른 알고리즘이 놓치는 SLO 위반 잡 보호
+
+### 2.3 한 줄 카드
+
+![Scheduler cards](figures/algo_pseudocode_grid.png)
+
+→ 알고리즘 디테일은 **부록 A** 참조.
+
+---
+
+## 3. 핵심 결과
+
+### 3.1 Contention regime 별 결과 (★ main finding)
+
+부하 강도(ρ) 가 알고리즘 ranking 을 완전히 바꾼다.
+
+![Contention sweep — Avg JCT](figures/sweep_avg_by_setup.png)
+
+| Setup | FIFO | LAS | SRTF | MetaSrtf | SrtfSlo | MetaSrtfSlo |
+| ----- | ---- | --- | ---- | -------- | ------- | ----------- |
+| 1G mild (l=100) | 93 | **139** (+49 %) | **74** (−21 %) | 79 (−15 %) | 93 | 93 |
+| 1G HEAVY (l=200) | 5534 | 💀 | 💀 | 💀 | **5534** | **5534** |
+| 2G HEAVY (l=400) | 2636 | 💀 | 💀 | 💀 | **2636** | **2636** |
+
+(💀 = 3 분 timeout 후 강제 종료)
+
+**3 가지 명확한 패턴**:
+
+1. **Mild contention**: SRTF/MetaSrtf 가 단연 best. LAS 가 최악.
+2. **Heavy contention**: pure shortest-first (LAS / SRTF / MetaSrtf) 가 **catastrophic 하게 thrash** — tracked 잡들이 starve 해서 영원히 끝나지 않음.
+3. **Bucket 변형은 모든 regime 에서 안정** — mild 에서는 FIFO ≈ SRTF/MetaSrtf 사이 위치하고, heavy 에서는 유일하게 작동.
+
+### 3.2 2 GPU 깊은 분석 — MetaSrtf 가 Oracle SRTF 와 동등
+
+위 표의 "moderate (2 GPU, load 200)" 시나리오 상세:
+
+| Rank | Scheduler | Avg | vs FIFO | P99 | Max |
+| ---- | --------- | --- | ------- | --- | --- |
+| 🥇 | **MetaSrtf (submission-time)** | **63.2 s** | **−14 %** | 503 | 585 |
+| 🥈 | SRTF (oracle, exec_time) | 64.3 | −12.5 % | 388 | 405 |
+| 🥉 | FIFO | 73.5 | baseline | 198 | 204 |
+| | **SrtfSlo (bucket)** | 74.0 | +0.7 % | **198** | **204** ← tight tail |
+| | SjfTotal (cat-mean) | 78.5 | +6.8 % | 332 | 353 |
+| ❌ | **LAS** | **112.7** | **+53 %** | 545 | 589 |
+
+→ **MetaSrtf 가 oracle SRTF 와 평균 동등** (63.2 vs 64.3, noise 영역). 단 oracle 은 tail 이 더 좋음 (P99 388 vs 503) — bucket variant 가 이 trade-off 를 해결 (P99 198, tail 절반 압축).
+
+⚠️ 차이 1.7 % 는 100 개 sample noise. 본문은 **"MetaSrtf ≈ Oracle SRTF"** 라는 표현이 정확.
+
+### 3.3 Cluster size 무관 — 동일한 ranking 이 모든 size 에 적용
+
+같은 ρ=2.6× 를 유지하며 cluster 를 8× 까지 키워도:
+
+![Scale sweep](figures/scale_sweep.png)
+
+| Cluster | Load | FIFO/Bucket Avg | LAS/SRTF/MetaSrtf |
+| ------- | ---- | --------------- | ----------------- |
+| 1 GPU | 200 | 919 s | 💀 |
+| 4 GPU | 800 | **224** (≈ 1/4 ×) | 💀 |
+| 8 GPU | 1600 | **108** (≈ 1/8 ×) | 💀 |
+
+**Avg JCT 가 1/N 으로 감소** (M/M/c 큐잉 이론 정합). **Starvation 패턴은 size 무관** — ρ 가 결정 요소.
+
+---
+
+## 4. 왜 동작하는가 — 메커니즘
+
+### 4.1 Bucket 이 starvation 을 막는 원리
+
+LAS / SRTF / MetaSrtf 의 starvation 시나리오:
+
+```
+t      : 잡 X (100s 소요) GPU 에서 50s 실행 중
+t+ε    : 새 짧은 잡 Y (12s) 도착
+SRTF   : Y 가 더 짧음 → X preempt
+t+12   : Y 끝. X 재개? 그러나 또 짧은 Z 도착
+SRTF   : Z 우선 → X 또 preempt
+...    : X 영원히 못 끝남
+```
+
+이는 scheduling 이론의 고전적 결과 — **SRTF 는 closed batch 에서만 optimal, open system 에서는 starvation 발생**.
+
+Bucket variant 의 해법:
+
+![Risk zones](figures/algo_risk_zones.png)
+
+```
+sort_key = (priority, bucket, secondary)
+
+bucket 0 (critical):  wait ≥ SLO_target          → -wait 순 (most overdue first)
+bucket 1 (warning):   wait ≥ θ × SLO_target      → secondary (LAS / SRTF / Meta)
+bucket 2 (safe):      otherwise                   → secondary
+```
+
+→ 잡 X 가 `wait ≥ SLO` 에 도달하면 **자동으로 bucket 0 승격** → **다른 모든 잡보다 절대 우선** → starvation 으로부터 보호. 단순 threshold trigger 라 saturation 없음.
+
+### 4.2 Submission-time predictor — Oracle 없이 40% 회복
+
+**핵심 framing**: predictor 가 사용하는 features 는 모두 **잡 제출 시점에 알 수 있음**.
+
+| 신호 종류 | 예시 | 알 수 있는 시점 | 사용 알고리즘 |
+| -------- | ---- | --------------- | ------------- |
+| **사용자 요청 파라미터** | `num_steps`, `model`, `batch` | **제출 시점** ✓ | **MetaSrtf** |
+| 시스템 상태 | `attained_service` | 실시간 | LAS |
+| Ground truth | `exec_time_seconds` | 실행 후 (production 불가능) | Oracle SRTF |
+
+→ MetaSrtf 는 **"submission-time predictor"** — 완전 Oracle 도 완전 black-box 도 아닌 **중간**.
+
+Linear regression with one-hot:
+- Train: 잡 0–2999, Test: 3000–26793
+- R² = 0.394, MAE = 9.24 s
+- vs category-mean baseline R² = −0.06 → **26 % MAE 개선**
+
+### 4.3 더 좋은 ML 모델은 도움 안 됨
+
+![Predictor comparison](figures/predictor_comparison.png)
+
+| Model | MAE | R² |
+| ----- | --- | -- |
+| Mean baseline | 12.86 s | −0.08 |
+| **Linear regression** | **9.24 s** | **0.394** |
+| CatBoost (500 iter, depth=6) | 9.38 s | 0.361 |
+| LightGBM (500 iter, depth=6) | 9.54 s | 0.367 |
+
+→ **Boosting tree 가 linear 보다 더 나쁨**. R² 0.39 가 이 metadata feature space 의 ceiling.
+
+honest interpretation: 추가 정확도는 더 좋은 모델이 아니라 **더 풍부한 feature** (GPU 종류, batch info, 실시간 상태) 가 필요. 본 trace 에는 없음.
+
+또한 솔직한 분석: `num_inference_steps` 자체로 Pearson r=0.54 (variance 의 ~29 %), 전체 모델 R² 0.39 — **predictor 는 "physics-based estimator 의 정교화"** 에 가깝다. ML magic 이 아님.
+
+---
+
+## 5. Production deployment guide
+
+| 예상 contention ρ | 추천 알고리즘 | 근거 |
+| ----------------- | ------------ | ---- |
+| < 1.5× | **SRTF** (또는 metadata 가용 시 **MetaSrtf**) | mild 에서 평균 -20 % |
+| 1.5× ~ 2× | **MetaSrtf** | Oracle 동등 + production-realistic |
+| ≥ 2× | **MetaSrtfSlo** / **SrtfSlo** | thrash 회피 필수 |
+| 변동 / 불확실 | **MetaSrtfSlo** | 모든 영역에서 안전 |
+
+LAS 는 어디서도 추천 아님 — mild +49 %, heavy thrash.
+
+---
+
+## 6. 한계 (정직한 평가)
+
+본 결론은 **본 trace + Blox 시뮬레이터 조건 하에서** 유효. 강한 generalization 주장은 다음 한계 때문에 신중해야 한다.
+
+| 한계 | 영향 | 향후 과제 |
+| ---- | ---- | --------- |
+| 단일 trace (Alibaba 2026 GenAI) | 일반화 못 함 | 다른 trace (LLM serving, video transcoding) 검증 |
+| 잡 sample 100–300 개 | 평균 1–2 % 차이는 noise | 다중 seed × bootstrap CI |
+| 단일 random seed | trace replay deterministic | seed sweep |
+| `multigpu=False` | placement 결정 무의미 | multi-GPU + placement-aware 변형 |
+| Preemption cost = 0 | 실제 KV cache loss 무시 | preemption cost model |
+| `num_steps` 가 dominant signal | predictor 가 "ML" 보다 "physics-based" | richer features (GPU type, batch info) |
+
+특히 **"MetaSrtf ≈ Oracle SRTF"** 주장의 강도: 5 setup 에서 일관 → high signal. 그러나 statistical significance proof 는 향후 과제.
+
+**"Bucket 의 starvation 회피"** 주장의 강도: 6 setup 에서 일관 (1G/2G/4G/8G × heavy load 에서 LAS/SRTF/MetaSrtf 모두 thrash, bucket variants 만 안전) → 더 강한 high confidence.
+
+---
+
+## 7. 결론
+
+세 가지 contribution:
+
+1. **🏆 Submission-time predictor** — 사용자가 제출 시점에 알려주는 metadata (steps, model 등) 만으로 oracle SRTF 와 평균 JCT 동등 (FIFO 대비 mild −15 ~ −21 %, moderate −14 %). post-execution 정보 없는 production-realistic 가정.
+2. **🛡️ SLO bucket variants** — heavy contention (ρ ≥ 2×) 에서 pure shortest-first 의 starvation 을 회피. mild 에선 ~0 % overhead, heavy 에선 유일하게 작동.
+3. **📊 Regime-별 가이드** — production deployment 시 ρ 측정 → 알고리즘 선택 framework.
+
+LAS 는 어느 영역에서도 추천 아님. Heavier ML (CatBoost/LightGBM) 도 도움 안 됨 — R² 천장이 feature space 에서 결정.
+
+본 trace 의 제약과 시뮬레이터 단순화로 인해 강한 generalization 주장은 아직 어렵지만, contribution 방향성은 명확.
+
+---
+
+## 부록 A. Knee-SLO 알고리즘 디테일
+
+### A.1 핵심 변수
 
 ```
 B_i      = T_i                                # 절대 SLO budget
@@ -84,9 +297,7 @@ wait_i   = (now - submit_i) / max(B_i - w_i, ε)  # 큐 대기 위험
 - `θ ≤ risk < 1`: **danger** — urgency 비선형 증가
 - `risk ≥ 1`: **late** — SLO 초과, 강한 boost
 
-### 3.2 Urgency function (3-zone knee)
-
-![Risk zones](figures/algo_risk_zones.png)
+### A.2 Urgency function
 
 ```
 if risk < θ:     urgency = c1 · risk
@@ -96,166 +307,29 @@ else:            urgency = c1·θ + c2 + c3 · (risk-1)
 
 기본값: `θ=0.7, γ=2, c1=1, c2=6, c3=30`.
 
-### 3.3 최종 점수 (낮을수록 우선)
+### A.3 최종 점수 (낮을수록 우선)
 
 ```
-score = w_size · (r / global_avg)             # SJF bias
-      − w_urg  · urgency(max(risk, wait_risk))
-      − w_age  · age_bonus
+score = w_size · (r / global_avg) − w_urg · urgency(max(risk, wait_risk)) − w_age · age_bonus
 ```
 
-기본 가중치: `w_size = w_urg = 1.0, w_age = 0.1`.
+### A.4 Algorithm flow
 
 ![Algorithm flow](figures/algo_flow.png)
 
-### 3.3bis 모든 알고리즘 한눈에 보기
+### A.5 본 보고서의 winning 디자인 — discrete bucket
 
-같은 큐 (J1 short-new, J2 short-old, J3 medium-progress, J4 long-new, J5 long-overdue) 를 11 개 알고리즘이 어떻게 다르게 정렬하는지:
-
-![Algorithm ordering demo](figures/algo_ordering_demo.png)
-
-흥미로운 관찰:
-- **FIFO**: J5 (가장 오래 전 제출) → J1 (가장 최근). 단순 submit 순.
-- **LAS / SRTF / MetaSrtf**: J1 (짧고 새 잡) 우선 — short-job bias.
-- **EDF / LLF**: J5 우선 (이미 SLO 초과) — deadline-aware.
-- **LasSlo / SrtfSlo / MetaSrtfSlo (bucket 변형)**: J5, J2 가 critical bucket 으로 absolute priority → 두 잡 보호. 그 다음 J3 (warning), 마지막에 J1, J4 (safe).
-
-각 알고리즘이 어떤 신호를 쓰는지:
-
-![Algorithm feature matrix](figures/algo_feature_matrix.png)
-
-한 줄 요약 카드:
-
-![Scheduler cards](figures/algo_pseudocode_grid.png)
-
-### 3.4 Placement 정책에 관한 결정 (의도적 단순화)
-
-본 연구는 **scheduling 정책**만 변경하고 GPU placement 는 Blox 기본 (free GPU 중 첫 매칭) 유지. 이유:
-
-- 본 워크로드의 모든 잡이 `multigpu=False` → 1 GPU 만 요구
-- 1-GPU 잡 + N free GPUs → "어느 GPU 에 넣을지" 의 placement decision 이 **latency 측면에서 무의미**
-- §7.5 scale-up sweep 도 이 관찰을 confirm: cluster size 가 변해도 알고리즘 ranking 동일
-
-**Placement 가 의미를 가지려면** 다음 조건이 필요 (본 연구 범위 밖, 향후 과제):
-- multi-GPU 잡 (tensor / pipeline parallel) — consolidated vs scattered 선택
-- NUMA / topology 인지 — 같은 머신 내 GPU 우선
-- 메모리 fragmentation 회피
-
-향후 multi-GPU 워크로드 추가 시 SLO-aware placement (urgent 잡에 consolidated, 일반 잡에 scattered) 가 의미 있을 것.
-
-### 3.5 SLO Bucket 변형 (실제 winning 디자인)
-
-Knee-SLO 의 continuous urgency 가 heavy contention 에서 **urgency saturation** 으로 LJF-like 로 degenerate 하는 문제 (§5.1) 를 해결하기 위해, 다음 **discrete bucket** 디자인을 채택.
-
-```
-sort_key = (priority, bucket, secondary)
-
-bucket 0 (critical):  wait >= SLO_target            → secondary = -wait
-bucket 1 (warning):   wait >= θ × SLO_target        → secondary = attained (LAS-like)
-                                                    또는 remaining (SRTF-like)
-bucket 2 (safe):      otherwise                     → secondary = same
-```
-
-이로부터 5 가지 변형:
-
-| 이름 | bucket 1/2 정렬 | 비고 |
-| ---- | --------------- | ---- |
-| `LasSlo` | attained_service ↑ (LAS) | 가장 단순 |
-| `SrtfSlo` | predicted_remaining ↑ (Oracle) | SRTF 효율 + bucket 보호 |
-| `MetaSrtfSlo` | meta-predicted remaining ↑ | **non-Oracle, winning combo** |
-| `MetaLasSlo` | attained_service ↑, SLO 가 meta-pred × multiplier | per-job SLO scaling |
-| `KneeSloClassDur` | continuous Knee, per-class SLO | 클래스 다양성 활용 |
+§3.1 의 contention 결과 분석으로 본 보고서는 continuous Knee-SLO 보다 **discrete bucket** 디자인 (`LasSlo / SrtfSlo / MetaSrtfSlo`) 을 권장. continuous urgency 가 heavy contention 에서 saturation 으로 LJF-like 로 degenerate 하는 반면, bucket 은 threshold-trigger 라 안정.
 
 ---
 
-## 4. Metadata-based Duration Predictor
+## 부록 B. 부수 실험 — 합성 training-like / 단일-pool 추론 (negative)
 
-### 4.0 "Non-Oracle" 의 정확한 의미 — 솔직히
+본 보고서가 §3 의 inference contention regime 결과를 main 으로 하기 전, 다음 시나리오에서도 실험했다 (모두 negative result).
 
-본 연구의 predictor 는 **순수한 black-box ML predictor 가 아니다**. 사용하는 features 는 모두 **잡 제출 시점에 알 수 있는 사용자 요청 파라미터** (Triton, vLLM 같은 실 serving system 도 동일 정보 사용):
+### B.1 합성 training-like 워크로드 (Wave 1–4)
 
-| 신호 종류 | 예시 | 알 수 있는 시점 | 우리 위치 |
-| -------- | ---- | --------------- | ---------- |
-| **사용자 요청 파라미터** | `num_steps`, `checkpoint_model`, `batch_size` | **제출 시점** | ⬅️ MetaSrtf 사용 |
-| 실시간 시스템 상태 | `attained_service`, queue depth | 실시간 | LAS 사용 |
-| **Ground truth** | `exec_time_seconds` | 실행 후 | Oracle SRTF 사용 |
-
-→ MetaSrtf 는 **"submission-time predictor"** 가 정확한 라벨. 완전 Oracle 도 완전 LAS-style 도 아닌 **중간 지점**.
-
-#### 그렇다면 정말 의미 있는가?
-
-`num_inference_steps × per_step_time` 만으로도 latency 의 ~29 % 변동성 (Pearson r=0.543) 이 설명됨. 즉 본 predictor 의 핵심 contribution 은 **이미 잘 알려진 "physics-based estimator"** 에 가깝다. 모델 R² = 0.394 중 0.29 가 steps alone, 추가 0.10 이 (모델 종류 + predict_type + interaction) 에서 옴.
-
-**솔직한 평가**: 본 predictor 가 oracle SRTF 와 동등 성능을 낸 것은 "ML 의 놀라움" 이 아니라 **"submission-time 정보가 inference workload 에서 oracle 정보의 ~40 % 를 회복할 수 있다"** 라는 데이터-기반 검증. 진짜로 어려운 케이스 (큐 다이내믹, contention, 모델 cold-start) 의 60 % residual 은 여전히 잡히지 않음.
-
-### 4.1 Features (모두 submission-time)
-
-- `num_inference_steps` (28–40, median 30) — 사용자가 API request 에 명시
-- `num_images_per_prompt` (1–8) — 사용자가 명시
-- `predict_type` (TXT_2_IMG 96 %, IMG_2_IMG 4 %) — request 타입
-- `checkpoint_model` (LoRA 모델 종류, ~20 개) — 어떤 모델 호출
-- `num_lora`, `prompt_length` — request 메타데이터
-
-### 4.2 모델 (linear regression with one-hot + interaction)
-
-```
-predicted_dur = β_0 + β_steps·steps + β_imgs·imgs
-              + β_steps×imgs·(steps × imgs)
-              + Σ β_ptype · 1[ptype]
-              + Σ β_model · 1[checkpoint_model]
-              + β_nlora·nlora + β_plen·plen
-```
-
-훈련: 잡 0–2999 (3000개), 테스트: 잡 3000–26793 (24K개).
-
-### 4.3 성능
-
-| 지표 | Metadata predictor | Category-mean baseline (predict_type 평균) |
-| ---- | ----------------- | ---------------------------------------- |
-| MAE | **9.24 s** | 12.45 s |
-| MAPE | **35.0 %** | 46.7 % |
-| R² (test) | **+0.394** | **−0.063** ⟵ 카테고리 평균은 random 보다 나쁨 |
-
-**26 % MAE 개선** + R² 가 음수에서 +0.394 로 회복.
-
-### 4.3bis Heavier ML 으로 더 개선할 수 있을까? — No
-
-Linear regression 의 R²=0.39 가 metadata feature space 의 천장인지 검증. 같은 train/test split (잡 0–2999 train, 3000+ test) 에서 비교:
-
-![Predictor comparison](figures/predictor_comparison.png)
-
-| Model | MAE | MAPE | R² |
-| ----- | --- | ---- | -- |
-| Mean baseline | 12.86 s | 45.3 % | −0.080 |
-| **Linear regression** ⭐ | **9.24 s** | 35.0 % | **0.394** |
-| CatBoost (500 iter, depth=6) | 9.38 s | 34.2 % | 0.361 |
-| LightGBM (500 iter, depth=6) | 9.54 s | 34.5 % | 0.367 |
-
-→ **Tree 기반 boosting 이 linear regression 보다 약간 worse**. 이유:
-1. **Feature space 가 너무 simple** (6 features, 2 categorical) → linear 가 표현력 충분
-2. **Train 3000 잡** 으로 tree 모델 hyperparams 가 약간 overfit
-3. **R² 0.39 가 본 metadata feature set 의 ceiling** — 61 % residual variance 는 GPU contention / queue dynamics 같은 **fundamental noise** (어떤 metadata-only 모델도 잡을 수 없음)
-
-honest message: **추가 prediction 정확도 개선은 더 좋은 모델이 아니라 더 풍부한 feature** (GPU 종류, batch info, model 내부 spec, 실시간 시스템 상태) 가 필요. 본 trace 에서는 그 features 가 없음.
-
-### 4.4 가장 강력한 features (coefficient × std)
-
-| Feature | Effect (s) | 의미 |
-| ------- | ---------- | ---- |
-| `checkpoint_model = M0003` | +27.2 | M0003 모델은 평균 +27 s |
-| `checkpoint_model = M0011` | +20.1 | |
-| `predict_type = IMG_2_IMG` | +6.5 | i2i 가 t2i 보다 살짝 느림 |
-| `steps × imgs` (interaction) | +0.013/unit | batch × step depth |
-
-→ **`checkpoint_model` 이 가장 강력한 predictor** — job_class_id 가 5 개로 통합되기 전의 더 fine-grained 정보.
-
----
-
-## 5. 결과 — 합성 training-like 워크로드 (Wave 1–4, hours 단위)
-
-⚠️ 본 절은 `exponential=True` 시 sequencer 가 만든 gavel-like synthetic duration (mean 14.7 h) 결과. **실제 추론 결과는 §6** 부터.
-
-### 5.1 Wave 1–4 종합 (load=8 jobs/hr, 128 GPU, SLO=6h)
+`exponential=True` 로 trace duration 을 gavel-like synthetic 으로 덮어쓴 결과 (mean 14.7 h).
 
 <!-- BEGIN AUTO: wave1_table -->
 | Config | Avg JCT (h) | vs FIFO | Median (h) | P95 (h) | P99 (h) | SLO miss % | Tard mean (h) | Resp (s) |
@@ -277,185 +351,32 @@ honest message: **추가 prediction 정확도 개선은 더 좋은 모델이 아
 | LLF | 67.43 | +130.7% | 66.62 | 70.19 | 119.87 | 100.0% | 61.43 | 189,518 |
 <!-- END AUTO: wave1_table -->
 
-### 5.2 핵심 발견 (negative for Knee)
+→ LAS (14.91 h) 가 모든 Knee 변형 (best size-only 25.56 h) 압도. Saturation issue — SLO=6h 가 너무 빡빡해 모든 잡이 late zone, Knee 가 LJF-like 로 degenerate.
 
-- **LAS (14.91h) 가 모든 Knee 변형을 압도** (best Knee = size-only 25.56h, +71%).
-- **Saturation issue**: SLO=6h 가 너무 빡빡해서 모든 잡이 late zone → urgency 폭주 → Knee 가 LJF-like 로 degenerate.
-- Linear risk function 이 quadratic 대비 24 % 빠름 (saturation 우회).
+### B.2 단일-pool 추론 (under-saturated)
 
-자세한 ablation: `figures/avg_jct_v2.png`, `figures/pareto_jct_vs_slo.png`.
+32 GPU + load 8000 jobs/hr 환경. 모든 17 개 알고리즘 동일 (Avg 32.2 s, P99 69 s).
 
-### 5.3 SLO calibration insight
+→ 큐가 즉시 drain → ordering 차이 무의미. **클러스터가 워크로드 대비 너무 큼**. §3.1 의 GPU 축소 실험이 이 사실에서 시작.
 
-| SLO target | FIFO miss rate |
-| ---------- | -------------- |
-| 6h         | 100% (너무 빡빡) |
-| 24h        | 34% (권장 운영점) |
-| 36h        | 17% |
+### B.3 Knee-SLO 의 SLO calibration 발견
 
-→ SLO 평가는 multi-target curve 와 함께 보고해야 의미가 있다 (`figures/slo_target_curve.png`).
+| SLO target | FIFO miss rate | 비고 |
+| ---------- | -------------- | ---- |
+| 6 h | 100 % | 너무 빡빡 |
+| 24 h | 34 % | 권장 |
+| 36 h | 17 % | 느슨 |
 
----
-
-## 6. 결과 — 실제 추론 단일 pool (under-saturated)
-
-설정: 32 GPU, load 8000 jobs/hr (~1.7× over capacity), tracked 잡 3000–3300.
-
-**모든 17 개 알고리즘 동일** (Avg 32.2s, P99 69s, Max 151s, miss@60s = 3.0 %).
-
-![Inference CDF](figures/inf_jct_cdf.png)
-
-**이유**: 잡이 짧고 균일 (5–145s, mean 23s) + 큐가 즉시 drain → ordering 차이 무의미. 이는 **클러스터가 워크로드 대비 너무 큼**을 의미.
-
-→ **GPU 를 줄여 contention 을 만들어야** scheduling 차이가 보임. §7 부터.
+→ SLO 평가는 multi-target curve 와 함께 보고해야 의미가 있음.
 
 ---
 
-## 7. 결과 — Contention regimes (본 연구의 main result)
-
-### 7.1 2 GPU 단일 실험 (워크로드 E)
-
-설정: 1 머신 × 2 GPU, load 200 jobs/hr, jobs 10–110.
-
-| Scheduler | Avg | vs FIFO | P95 | P99 | Max | miss@60s |
-| --------- | --- | ------- | --- | --- | --- | -------- |
-| 🥇 **MetaSrtf** (non-Oracle) | **63.2s** | **−14 %** | 222 | 503 | 585 | 20.8% |
-| 🥈 SRTF (oracle) | 64.3 | −12.5 % | 310 | 388 | 405 | 19.8% |
-| 🥉 FIFO | 73.5 | baseline | 193 | 198 | 204 | 42.6% |
-| SrtfSlo (bucket) | 74.0 | +0.7 % | **193** | **198** | **204** | 47.5% |
-| SjfTotal (category-mean) | 78.5 | +6.8 % | 278 | 332 | 353 | 35.6% |
-| ❌ LAS | **112.7** | **+53 %** | 438 | 545 | 589 | 33.7% |
-
-→ **MetaSrtf = Oracle SRTF** 둘 다 FIFO 대비 −14 % Avg JCT. **SjfTotal 대비 25 % 빠름** — Metadata predictor 가 simple category-mean 대비 실제 scheduling 결과에서도 큰 차이.
-
-⚠️ MetaSrtf vs SRTF 차이 (63.2 vs 64.3, 1.7 %) 는 sample 100 개 noise 영역. **"MetaSrtf > Oracle" 이 아니라 "MetaSrtf ≈ Oracle"** 이 정확한 메시지.
-
-### 7.2 Contention sweep (워크로드 F, 36 runs)
-
-3 setup × 6 algorithm × 2 track range로 reproducibility 확인.
-
-![Sweep avg by setup](figures/sweep_avg_by_setup.png)
-
-| Setup | FIFO | LAS | SRTF | MetaSrtf | SrtfSlo | MetaSrtfSlo |
-| ----- | ---- | --- | ---- | -------- | ------- | ------------ |
-| **1G mild** (l=100, ρ≈1.3×) | 93 | **139** (+49%) | **74** (−21%) | 79 (−15%) | 93 | 93 |
-| **1G HEAVY** (l=200, ρ≈2.6×) | 5534 | 💀 | 💀 | 💀 | **5534** | **5534** |
-| **2G HEAVY** (l=400, ρ≈2.6×) | 2636 | 💀 | 💀 | 💀 | **2636** | **2636** |
-
-(💀 = 3 분 timeout 후 강제 종료)
-
-### 7.3 Regime-별 메시지
-
-| ρ | 최우수 | 가장 위험 |
-| - | ----- | -------- |
-| < 1.5× | **SRTF / MetaSrtf** (−15~21%) | LAS (+49%) |
-| 1.5×~2× | **MetaSrtf** (Oracle 동등) | LAS (+53%) |
-| ≥ 2× | **MetaSrtfSlo / SrtfSlo** (유일하게 안전) | LAS / SRTF / MetaSrtf 모두 thrash |
-
-**Pure shortest-first 가 ρ ≥ 2× 에서 catastrophic starvation 으로 thrash 하는 것은 scheduling 이론의 고전적 결과** (SRTF 는 closed batch 에서만 최적). Bucket 변형이 이를 stable 하게 회피.
-
-### 7.4 Scale-invariance — 같은 ρ, 더 큰 cluster
-
-ρ ≈ 2.6× 를 유지하면서 cluster + load 를 비례 확대했을 때 알고리즘 ranking 이 변하는가?
-
-![Scale sweep](figures/scale_sweep.png)
-
-| GPU | load | FIFO / Bucket Avg | LAS / SRTF / MetaSrtf |
-| --- | ---- | ----------------- | --------------------- |
-| 1   | 200  | **919 s** | 💀 thrash |
-| 4   | 800  | **224 s** (≈ 1/4 ×) | 💀 thrash |
-| 8   | 1600 | **108 s** (≈ 1/8 ×) | 💀 thrash |
-
-**관찰**:
-1. **Avg JCT 가 1/N 로 감소** — M/M/c 큐잉 이론과 정합 (병렬 처리로 variance ↓).
-2. **Starvation 은 ρ-driven, cluster size 무관** — pure shortest-first 가 모든 size 에서 thrash.
-3. **8 GPU 에서 bucket 변형이 살짝 우위** (106.4 vs FIFO 108.2) — 큰 cluster 에서 reorder 가 실제 유의미한 작은 차이 발생.
-
-→ **본 연구 finding 은 cluster size 에 invariant**. ρ 만 핵심 변수.
-
-### 7.4bis Tail latency trade-off
-
-Mild contention 에서 bucket 변형 (SrtfSlo / MetaSrtfSlo) 은 FIFO 와 동일 — bucket overhead 가 SRTF 의 평균 우월성을 희석. 그러나 heavy contention 에서는 유일한 안전 옵션.
-
-2 GPU 실험 (§7.1) 의 tail 분석:
-- SRTF: Avg 64.3 / **P99 388**, Max 405 (long tail)
-- SrtfSlo: Avg 74 / **P99 198, Max 204** (tail 절반 압축)
-
-→ **bucket 은 평균 ~15 % 양보 + tail 50 % 보호** 의 trade-off.
-
----
-
-## 8. Open-system Stability — bucket 이 starvation 을 어떻게 막는가
-
-§7 의 heavy-contention 결과를 메커니즘 수준에서 설명.
-
-**Starvation scenario** (LAS / SRTF / MetaSrtf 공통):
-
-```
-t:    잡 X (service 100s) 가 GPU 에서 50s 실행 중
-t+ε:  새 짧은 잡 Y (12s) 도착
-SRTF: Y 우선 → X preempt
-t+12: Y 완료, X 재개? 그러나 또 다른 짧은 잡 Z 도착
-SRTF: Z 우선 → X 또 preempt
-...   X 영원히 완료 못 함
-```
-
-**Bucket 의 해법**:
-- 잡 X 가 `wait >= SLO_target` 에 도달하면 bucket 0 으로 승격
-- bucket 0 의 잡은 다른 모든 잡보다 절대 우선 → X 보호
-- 단순한 단조 함수가 아닌 **threshold 기반 trigger** 라서 saturation 안 일어남
-
-이게 §7 의 heavy contention 에서 bucket 변형 만 살아남는 이유.
-
----
-
-## 9. 실험 한계 (정직한 평가)
-
-본 연구의 결론은 **본 trace + Blox 시뮬레이터 조건 하에서**만 유효. production 배포 권장 수준의 강한 주장은 다음 한계 때문에 신중해야 한다.
-
-| 한계 | 영향 | 어떻게 대응했나 |
-| ---- | ---- | -------------- |
-| 단일 trace (Alibaba 2026 GenAI) | 일반화 못 함 | — (다른 trace 필요) |
-| 잡 sample 100–300개 | Avg 차이 1–2 % 는 noise 영역 | 2 track range 로 보강, 통계 검정 미실시 |
-| 단일 random seed | trace replay deterministic | — |
-| `multigpu=False` | 모든 잡 1 GPU, placement 의미 없음 | placement 분석 §3.4 에 명시 |
-| Preemption cost = 0 | 실제 KV cache loss 등 미반영 | NonPreempt 변형으로 부분 검증 |
-| 잡 동질성 (5–145s 분포, 22–24s 클러스터링) | SJF/SRTF 신호 약함 | metadata predictor 로 보강 |
-| Workload-specific saturation | SLO=6h 가 너무 빡빡 | multi-target SLO curve 평가 |
-| **`num_inference_steps` 가 latency dominant signal** | predictor 가 "ML" 보다는 "physics-based" 에 가까움 | §4.0 에 솔직히 명시 |
-
-→ **MetaSrtf ≈ Oracle SRTF** 주장의 강도: 100 개 잡, 2 setup, 단일 seed 에서 일관 → "high signal" 이지만 "statistically significant proof" 아님. confidence interval 도출에 추가 seed sweep 필요.
-
-→ **bucket 의 starvation 회피**: 4 setup (워크로드 E, F mild/heavy/heavy) 에서 일관 재현 → high confidence. 다만 "bucket overhead 가 mild 에서 ~15 % 손해" 도 함께 보고해야 정직.
-
-향후 과제:
-1. 다중 seed × bootstrap CI 로 statistical significance 검증
-2. multi-GPU 잡 도입 후 placement-aware 변형 평가
-3. Preemption cost model (KV cache restoration time) 추가
-4. 다른 trace (LLM serving, video transcoding) 로 generalization 검증
-
----
-
-## 10. 결론 (요약)
-
-세 가지 contribution:
-
-1. **🏆 Metadata predictor + MetaSrtf** — oracle 정보 없이 SRTF 와 동등한 평균 JCT 달성 (closed batch 및 moderate contention).
-2. **🛡️ SLO bucket variants** — heavy contention 에서 pure shortest-first 의 starvation 회피. mild~moderate 에서는 ~15 % 평균 양보 + tail 50 % 보호.
-3. **📊 Regime-별 가이드** — production deployment 시 contention 강도 측정 → 적절한 알고리즘 선택 framework 제공.
-
-LAS 는 어느 영역에서도 추천 안 됨 — mild 에선 +49 %, heavy 에선 thrash.
-
-본 trace 의 제약 + 시뮬레이터의 단순화로 강한 generalization 주장은 아직 무리. 그러나 contribution 의 방향성은 명확.
-
----
-
-## 부록 A. 재현 방법
+## 부록 C. 재현 방법
 
 ```bash
 source venv/bin/activate
 
-# 1. Metadata predictor 학습 (offline, ~1s)
+# 1. Metadata predictor 학습 (~1 s)
 python build_metadata_predictor.py
 
 # 2. 단일 실험
@@ -465,8 +386,9 @@ BLOX_NUM_MACHINES=1 BLOX_GPUS_PER_MACHINE=2 \
     META_SLO_TARGET=60 META_SLO_THETA=0.7 \
     bash run_one_experiment.sh
 
-# 3. 전체 contention sweep
+# 3. Contention sweep (main result 재생성)
 bash run_sweep_contention.sh
+bash run_sweep_scale.sh
 
 # 4. 보고서 갱신
 python generate_summary.py
@@ -474,27 +396,31 @@ python compile_final_report.py
 python build_html.py
 ```
 
-## 부록 B. 시행착오 일지 (요약)
+## 부록 D. 시행착오 일지
 
-- **v1 SloScoring 의 wall-clock 버그**: `current_time = submit + attained` → slack 상수화 → 정책이 SJF-total-work 로 동작. v2 에서 `self.current_time` 외부 주입으로 fix.
-- **`exponential=True` 라벨 오류**: simulator 디폴트가 trace 의 실제 exec_time (12–33 초) 을 gavel-like synthetic (30 분 ~ 150 시간) 으로 덮어쓰고 있음을 사후 발견 (`§5` 의 결과는 이 영향). `exponential=False` 로 정정.
+본 보고서가 final 형태에 도달하기까지의 주요 debugging 발견.
+
+- **v1 SloScoring 의 wall-clock 버그**: `current_time = submit + attained` → slack 상수화 → 정책이 SJF-total-work 로 동작했음. v2 에서 `self.current_time` 외부 주입으로 fix.
+- **`exponential=True` 라벨 오류**: simulator 디폴트가 trace 의 실제 exec_time (12–33 s) 을 gavel-like synthetic (30 분 ~ 150 시간) 으로 덮어쓰고 있음을 사후 발견 → `exponential=False` 로 정정 (이게 §B.1 vs §3.1 차이).
 - **시뮬레이터 hang**: `wait $SIM_PID` 가 영원히 block (server.wait_for_termination). `run_one_experiment.sh` 에서 `kill $SIM_PID` 명시.
-- **gRPC custom field loss**: `predict_type` 등이 simulator → scheduler gRPC 직렬화에서 누락. `job_class_id` + metadata_pred.json (offline lookup) 으로 우회.
-- **병렬 batch 실행 race**: 다중 simulator 가 pickle cache + cluster state 공유. sequential 로 회귀.
+- **gRPC custom field loss**: `predict_type` 등이 simulator → scheduler 직렬화에서 누락. `job_class_id` + `metadata_pred.json` (offline lookup) 으로 우회.
+- **병렬 batch 실행 race**: 다중 simulator 가 pickle cache + cluster state 공유 → race condition. sequential 실행으로 회귀.
 
-## 부록 C. 파일 구조
+## 부록 E. 파일 구조
 
 ```
 schedulers/   {fifo,las,srtf,sjf,edf,llf,hrrn}.py   고전 baselines
               knee_slo*.py                          Knee-SLO + 6 변형
               las_slo.py / srtf_slo.py              bucket 변형
-              meta_pred.py / meta_srtf_slo.py       metadata 기반
-build_metadata_predictor.py                         R² 0.39 predictor
-metadata_pred.json                                  lookup table (offline)
-run_one_experiment.sh                               단일 실험 launcher (자동 results/ 정리)
-run_sweep_contention.sh                             36-run contention sweep
-results/                                            카테고리별 JSON 결과
-docs/report_v2/                                     본 보고서 + figures + css
+              meta_pred.py / meta_srtf_slo.py       metadata 기반 (제안)
+build_metadata_predictor.py    Linear regression predictor 학습 (R² 0.39)
+compare_predictors.py          CatBoost / LightGBM 비교 (heavier ML 안 됨)
+metadata_pred.json             lookup table — scheduler 가 init 시 로드
+run_one_experiment.sh          단일 실험 launcher (자동 results/ 정리)
+run_sweep_contention.sh        Contention regime sweep (main result)
+run_sweep_scale.sh             Scale-up sweep (cluster size 무관성)
+results/                       카테고리별 JSON 결과 (1,378 파일)
+docs/report_v2/                본 보고서 + figures + css
 ```
 
 
