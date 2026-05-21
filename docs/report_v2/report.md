@@ -38,7 +38,7 @@
 | **Heavy** (ρ ≥ 2.6×) | **bucket 변형 (MetaSrtfSlo)** | = FIFO | LAS / SRTF / MetaSrtf 모두 thrash |
 
 → **본 연구의 두 가지 contribution**:
-1. **Metadata-only predictor (R² 0.39)** 가 oracle SRTF 와 동등 성능 (mild~moderate contention 에서 −14 % Avg JCT). `checkpoint_model`, `predict_type`, `num_inference_steps` 만으로 oracle 정보 없이 동등.
+1. **Submission-time predictor (R² 0.39)** 가 oracle SRTF 와 동등 성능 (mild~moderate contention 에서 −14 % Avg JCT). 사용자가 API request 에 명시하는 `num_inference_steps`, `checkpoint_model`, `predict_type` 만으로 — post-execution `exec_time_seconds` 없이 — 동등 달성. (단, num_steps 자체가 latency 의 dominant signal 인 점은 §4.0 에서 솔직히 분석)
 2. **Bucket-based 변형** (SrtfSlo, MetaSrtfSlo) 가 heavy contention 에서 pure shortest-first 의 catastrophic starvation 을 회피.
 
 ![Sweep avg by setup](figures/sweep_avg_by_setup.png)
@@ -155,17 +155,31 @@ bucket 2 (safe):      otherwise                     → secondary = same
 
 ## 4. Metadata-based Duration Predictor
 
-Oracle 정보 없이 잡 duration 을 예측하는 게 본 연구의 기술적 핵심.
+### 4.0 "Non-Oracle" 의 정확한 의미 — 솔직히
 
-### 4.1 Features
+본 연구의 predictor 는 **순수한 black-box ML predictor 가 아니다**. 사용하는 features 는 모두 **잡 제출 시점에 알 수 있는 사용자 요청 파라미터** (Triton, vLLM 같은 실 serving system 도 동일 정보 사용):
 
-Alibaba 2026 GenAI trace 의 metadata:
+| 신호 종류 | 예시 | 알 수 있는 시점 | 우리 위치 |
+| -------- | ---- | --------------- | ---------- |
+| **사용자 요청 파라미터** | `num_steps`, `checkpoint_model`, `batch_size` | **제출 시점** | ⬅️ MetaSrtf 사용 |
+| 실시간 시스템 상태 | `attained_service`, queue depth | 실시간 | LAS 사용 |
+| **Ground truth** | `exec_time_seconds` | 실행 후 | Oracle SRTF 사용 |
 
-- `num_inference_steps` (28–40, median 30)
-- `num_images_per_prompt` (1–8)
-- `predict_type` (TXT_2_IMG 96 %, IMG_2_IMG 4 %)
-- `checkpoint_model` (LoRA 모델 종류, ~20 개)
-- `num_lora`, `prompt_length`
+→ MetaSrtf 는 **"submission-time predictor"** 가 정확한 라벨. 완전 Oracle 도 완전 LAS-style 도 아닌 **중간 지점**.
+
+#### 그렇다면 정말 의미 있는가?
+
+`num_inference_steps × per_step_time` 만으로도 latency 의 ~29 % 변동성 (Pearson r=0.543) 이 설명됨. 즉 본 predictor 의 핵심 contribution 은 **이미 잘 알려진 "physics-based estimator"** 에 가깝다. 모델 R² = 0.394 중 0.29 가 steps alone, 추가 0.10 이 (모델 종류 + predict_type + interaction) 에서 옴.
+
+**솔직한 평가**: 본 predictor 가 oracle SRTF 와 동등 성능을 낸 것은 "ML 의 놀라움" 이 아니라 **"submission-time 정보가 inference workload 에서 oracle 정보의 ~40 % 를 회복할 수 있다"** 라는 데이터-기반 검증. 진짜로 어려운 케이스 (큐 다이내믹, contention, 모델 cold-start) 의 60 % residual 은 여전히 잡히지 않음.
+
+### 4.1 Features (모두 submission-time)
+
+- `num_inference_steps` (28–40, median 30) — 사용자가 API request 에 명시
+- `num_images_per_prompt` (1–8) — 사용자가 명시
+- `predict_type` (TXT_2_IMG 96 %, IMG_2_IMG 4 %) — request 타입
+- `checkpoint_model` (LoRA 모델 종류, ~20 개) — 어떤 모델 호출
+- `num_lora`, `prompt_length` — request 메타데이터
 
 ### 4.2 모델 (linear regression with one-hot + interaction)
 
@@ -354,6 +368,7 @@ SRTF: Z 우선 → X 또 preempt
 | Preemption cost = 0 | 실제 KV cache loss 등 미반영 | NonPreempt 변형으로 부분 검증 |
 | 잡 동질성 (5–145s 분포, 22–24s 클러스터링) | SJF/SRTF 신호 약함 | metadata predictor 로 보강 |
 | Workload-specific saturation | SLO=6h 가 너무 빡빡 | multi-target SLO curve 평가 |
+| **`num_inference_steps` 가 latency dominant signal** | predictor 가 "ML" 보다는 "physics-based" 에 가까움 | §4.0 에 솔직히 명시 |
 
 → **MetaSrtf ≈ Oracle SRTF** 주장의 강도: 100 개 잡, 2 setup, 단일 seed 에서 일관 → "high signal" 이지만 "statistically significant proof" 아님. confidence interval 도출에 추가 seed sweep 필요.
 
