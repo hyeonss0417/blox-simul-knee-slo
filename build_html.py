@@ -1,10 +1,10 @@
 """
-Build a polished standalone HTML from docs/report_v2.md.
+Build a polished standalone HTML from docs/report_v2/report.md.
 
 - Uses pandoc for MD → HTML conversion with header anchors.
 - Embeds the CSS inline so the file is self-contained.
 - Generates a sticky TOC sidebar from h2 + h3 anchors.
-- Rewrites image src to point at docs/figures_v2/ relative paths.
+- Rewrites image src to point at docs/report_v2/figures/ relative paths.
 """
 import os
 import re
@@ -12,11 +12,10 @@ import subprocess
 import html
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(ROOT, "docs", "report_v2.md")
-CSS = os.path.join(ROOT, "docs", "report_style.css")
-OUT = os.path.join(ROOT, "docs", "report_v2.html")
-FIG_DIR = os.path.join(ROOT, "docs", "figures_v2")
-FIG_OLD_DIR = os.path.join(ROOT, "docs", "figures")
+SRC = os.path.join(ROOT, "docs", "report_v2", "report.md")
+CSS = os.path.join(ROOT, "docs", "report_v2", "style.css")
+OUT = os.path.join(ROOT, "docs", "report_v2", "report.html")
+FIG_DIR = os.path.join(ROOT, "docs", "report_v2", "figures")
 
 
 def slugify(s):
@@ -68,7 +67,7 @@ def render_toc(items):
 
 def fix_image_paths(html_body):
     """Make figure paths absolute relative to HTML's location."""
-    # In MD: figures referenced as `figures_v2/foo.png` or `docs/figures_v2/foo.png`
+    # In MD: figures referenced as `figures_v2/foo.png` or `docs/report_v2/figures/foo.png`
     # HTML lives in docs/ so figures_v2/foo.png works directly.
     # Also embed missing-file fallback.
     return html_body

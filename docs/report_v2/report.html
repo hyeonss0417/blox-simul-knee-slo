@@ -344,7 +344,7 @@ li { margin: 4px 0; }
 </tbody>
 </table>
 <p>→ Metadata-only predictor (R² 0.39) 가 oracle 정보 없이 oracle SRTF 와 동등 성능, FIFO 대비 14 % 개선. Bucket 변형은 tail 을 절반으로 압축. <strong>본 보고서의 가장 강력한 contribution</strong>.</p>
-<p><img src="figures_v2/contention_avg.png" alt="Contention Avg JCT" /></p>
+<p><img src="figures/contention_avg.png" alt="Contention Avg JCT" /></p>
 <h3 id="11-핵심-positive-result--metadata-predictor--srtf는-oracle-srtf와-동등-closed-batch">1.1 핵심 positive result — Metadata predictor + SRTF는 oracle SRTF와 동등 (closed batch)</h3>
 <p><strong>🏆 가장 큰 contribution</strong>: trace metadata (predict_type, checkpoint_model, num_inference_steps, num_images_per_prompt, num_lora) 만으로 학습한 <strong>linear regression predictor (R² = 0.39, MAE = 9.24s)</strong> 가, ground-truth duration을 쓰는 oracle SRTF 와 <strong>동일한 평균 JCT 를 달성</strong>.</p>
 <table>
@@ -642,17 +642,17 @@ def knee(risk, θ, γ, c1, c2, c3):
     return c1*θ + c2 + c3 * (risk - 1)                       # late</code></pre>
 <h3 id="35bis-알고리즘-시각화">3.5bis 알고리즘 시각화</h3>
 <h4 id="한눈에-보는-스케줄링-step">한눈에 보는 스케줄링 step</h4>
-<p><img src="figures_v2/algo_flow.png" alt="Knee-SLO scheduling flow" /></p>
+<p><img src="figures/algo_flow.png" alt="Knee-SLO scheduling flow" /></p>
 <p>매 시뮬레이터 라운드마다 위 흐름을 모든 활성 잡에 적용해 점수를 매기고, <code>(priority, score) ASC</code> 로 정렬한 뒤 상위 잡들을 free GPU에 배치한다.</p>
 <h4 id="3개의-위험-zone">3개의 위험 zone</h4>
-<p><img src="figures_v2/algo_risk_zones.png" alt="Risk zones with example jobs" /></p>
+<p><img src="figures/algo_risk_zones.png" alt="Risk zones with example jobs" /></p>
 <ul>
 <li>🟢 <strong>safe</strong> (<code>risk &lt; θ</code>): 아직 여유. urgency는 미미하고 size 항(SJF bias)이 결정함.</li>
 <li>🟠 <strong>danger</strong> (<code>θ ≤ risk &lt; 1</code>): knee 비선형 부스트 시작. urgency가 빠르게 증가.</li>
 <li>🔴 <strong>late</strong> (<code>risk ≥ 1</code>): SLO를 이미 넘긴 위기. urgency가 거의 선형으로 폭주.</li>
 </ul>
 <h4 id="urgency-function-비교">Urgency function 비교</h4>
-<p><img src="figures_v2/algo_urgency_curves.png" alt="Knee urgency function variants" /></p>
+<p><img src="figures/algo_urgency_curves.png" alt="Knee urgency function variants" /></p>
 <ul>
 <li><strong>knee_quadratic</strong> (default): safe에서 거의 0, knee 직후 quadratic으로 가속, late에서 선형 폭주.</li>
 <li><strong>linear</strong>: 항상 <code>c1·risk</code>. 위험을 비례적으로만 다룸 — late zone 폭주 없음.</li>
@@ -660,7 +660,7 @@ def knee(risk, θ, γ, c1, c2, c3):
 </ul>
 <p>θ 를 바꾸면 knee 위치가 좌우로 움직이지만, late zone에서는 <code>c3·(risk−1)</code> 항이 지배하므로 θ 차이가 묻힌다 — 이게 §5.2bis에서 SLO=6h일 때 θ가 무영향이었던 이유다.</p>
 <h4 id="점수가-어떻게-합쳐지는가">점수가 어떻게 합쳐지는가</h4>
-<p><img src="figures_v2/algo_score_breakdown.png" alt="Score breakdown for 4 example jobs" /></p>
+<p><img src="figures/algo_score_breakdown.png" alt="Score breakdown for 4 example jobs" /></p>
 <p>각 잡의 최종 score는 세 항의 합이다.</p>
 <ul>
 <li><code>+ w_size × norm_remaining</code> — 큰 잡일수록 score가 커져서 뒤로 밀림 (SJF bias).</li>
@@ -675,7 +675,7 @@ def knee(risk, θ, γ, c1, c2, c3):
 <li><strong>Large/old, over-risk</strong>: urgency가 size를 압도해 score 음수 큼 → <strong>앞으로 끌어올림</strong> (이게 SLO 보호의 본질).</li>
 </ul>
 <h4 id="한-잡의-risk-진화">한 잡의 risk 진화</h4>
-<p><img src="figures_v2/algo_timeline.png" alt="One job&#39;s risk trajectory" /></p>
+<p><img src="figures/algo_timeline.png" alt="One job&#39;s risk trajectory" /></p>
 <p>대기 중에는 (<code>now − submit</code>) 증가로 risk가 선형 상승하고, 실행 중에는 (<code>remaining</code> 감소)로 risk가 평탄/하강한다. 위 예시처럼 18시간 대기 후 12시간 실행되어 30시간 만에 완료된 잡은 knee를 지나 danger zone에서 실행 우선권을 받게 된다.</p>
 <h3 id="36-slo-target-정의">3.6 SLO target 정의</h3>
 <p>본 trace는 "synthetic SLO target"을 다음과 같이 보정한다.</p>
@@ -702,17 +702,17 @@ def knee(risk, θ, γ, c1, c2, c3):
 <!-- END AUTO: final_recommendation -->
 
 <h3 id="41-pareto-frontier--jct-vs-slo-miss">4.1 Pareto frontier — JCT vs SLO miss</h3>
-<p><img src="figures_v2/pareto_jct_vs_slo.png" alt="Pareto frontier: Avg JCT vs SLO miss" /></p>
+<p><img src="figures/pareto_jct_vs_slo.png" alt="Pareto frontier: Avg JCT vs SLO miss" /></p>
 <p>우상단(나쁜) ↔︎ 좌하단(좋은)으로 각 알고리즘이 위치.</p>
 <h3 id="41bis-핵심-그래프-모음">4.1bis 핵심 그래프 모음</h3>
 <h4 id="avg-jct-전체-비교">Avg JCT 전체 비교</h4>
-<p><img src="figures_v2/avg_jct_v2.png" alt="Avg JCT v2" /></p>
+<p><img src="figures/avg_jct_v2.png" alt="Avg JCT v2" /></p>
 <h4 id="slo-miss-rate-6h-target">SLO miss rate (6h target)</h4>
-<p><img src="figures_v2/slo_miss_v2.png" alt="SLO miss v2" /></p>
+<p><img src="figures/slo_miss_v2.png" alt="SLO miss v2" /></p>
 <h4 id="p95-tardiness">P95 Tardiness</h4>
-<p><img src="figures_v2/p95_tardiness_v2.png" alt="P95 Tardiness" /></p>
+<p><img src="figures/p95_tardiness_v2.png" alt="P95 Tardiness" /></p>
 <h4 id="responsiveness">Responsiveness</h4>
-<p><img src="figures_v2/responsiveness_v2.png" alt="Responsiveness" /></p>
+<p><img src="figures/responsiveness_v2.png" alt="Responsiveness" /></p>
 <h3 id="42-knee-slo가-v1-sloscoring을-어떻게-개선했는가">4.2 Knee-SLO가 v1 SloScoring을 어떻게 개선했는가</h3>
 <table>
 <thead>
@@ -884,7 +884,7 @@ choose: argmin_g placement_risk(g)  among gpus that satisfy gpu_demand</code></p
 <p><strong>단위</strong>: 모든 JCT/SLO 수치는 <strong>hours</strong> 입니다 (워크로드 A의 mean 14.7h 스케일).</p>
 </blockquote>
 <blockquote>
-<p>실험 진행에 따라 자동 업데이트됨. 최신 표는 <code>docs/figures_v2/summary.json</code> 참조.</p>
+<p>실험 진행에 따라 자동 업데이트됨. 최신 표는 <code>docs/figures/summary.json</code> 참조.</p>
 </blockquote>
 <h3 id="51-종합-비교-표-load--8-jobshr-128-gpus">5.1 종합 비교 표 (load = 8 jobs/hr, 128 GPUs)</h3>
 <!-- BEGIN AUTO: wave1_table -->
@@ -1128,7 +1128,7 @@ choose: argmin_g placement_risk(g)  among gpus that satisfy gpu_demand</code></p
 </tr>
 </tbody>
 </table>
-<p><img src="figures_v2/slo_target_curve.png" alt="SLO target sweep curve" /></p>
+<p><img src="figures/slo_target_curve.png" alt="SLO target sweep curve" /></p>
 <p>흥미롭게도 <strong>Knee θ=0.7 (SLO=6h)</strong> 는 거의 모든 target에서 100% miss를 유지하며, 60h+ 에서야 비로소 떨어진다. 이는 6h 보정에서 알고리즘이 LJF-like로 동작하여 long-tail (60h 이상) 잡들이 quad-zone 우선순위로 누적된 결과다.</p>
 <p>late zone에서는 urgency = <code>c1·θ + c2 + c3·(risk - 1)</code>로 θ의 영향이 작아진다. 따라서 SLO=6h에서는 θ가 사실상 의미 없는 노브가 된다. <strong>Wave 5에서 SLO=24h로 재보정한 실험</strong>을 추가했다 (§4.1).</p>
 <p>이 발견 자체가 본 연구의 contribution 중 하나다: SLO-aware 알고리즘의 평가는 <strong>부담을 사전에 calibrate</strong>해야 의미가 있다는 점.</p>
@@ -1510,7 +1510,7 @@ choose: argmin_g placement_risk(g)  among gpus that satisfy gpu_demand</code></p
 <p>(아직 결과 없음)</p>
 <!-- END AUTO: wave3_loadsweep -->
 
-<p><img src="figures_v2/loadsweep_avg.png" alt="Load sweep — Avg JCT" /> <img src="figures_v2/loadsweep_p99.png" alt="Load sweep — P99 JCT" /> <img src="figures_v2/loadsweep_miss.png" alt="Load sweep — SLO miss rate" /></p>
+<p><img src="figures/loadsweep_avg.png" alt="Load sweep — Avg JCT" /> <img src="figures/loadsweep_p99.png" alt="Load sweep — P99 JCT" /> <img src="figures/loadsweep_miss.png" alt="Load sweep — SLO miss rate" /></p>
 <hr />
 <h2 id="8-wave-4--extreme--조합-변형-워크로드-a-hours">8. Wave 4 — Extreme / 조합 변형 (워크로드 A, hours)</h2>
 <p>Wave 1·2의 grid가 합리적 범위 (θ ∈ [0.3, 0.7]) 안에서만 휘저었기 때문에, <strong>극단값(θ=0.1, 0.9, γ=4)</strong> + <strong>두 기능 동시 적용</strong> (NonPreempt + 큰 aging 등) 도 검증한다. 또한 단일 항만 활성화한 "pure" 변형으로 각 항의 기여를 분리한다.</p>
@@ -1767,9 +1767,9 @@ choose: argmin_g placement_risk(g)  among gpus that satisfy gpu_demand</code></p
 </tbody>
 </table>
 <p><strong>모든 17개 알고리즘이 통계적으로 동일한 결과</strong>를 보였다 (Avg / P50 / P95 / P99 / Max / miss rate 모두 일치, raw JCT 값까지 일치).</p>
-<p><img src="figures_v2/inf_jct_cdf.png" alt="Inference JCT CDF" /></p>
-<p><img src="figures_v2/inf_summary.png" alt="Inference JCT Summary" /></p>
-<p><img src="figures_v2/inf_slo_curve.png" alt="Inference SLO curve" /></p>
+<p><img src="figures/inf_jct_cdf.png" alt="Inference JCT CDF" /></p>
+<p><img src="figures/inf_summary.png" alt="Inference JCT Summary" /></p>
+<p><img src="figures/inf_slo_curve.png" alt="Inference SLO curve" /></p>
 <h3 id="93-왜-모두-같은가--핵심-통찰">9.3 왜 모두 같은가? — 핵심 통찰</h3>
 <p>추론 워크로드에 대해 SLO-aware 스케줄링이 무력한 이유를 정량 분석.</p>
 <ol type="1">
@@ -2700,7 +2700,7 @@ run_all_waves.sh      # master orchestrator
 
 plot_v2_results.py     plot_w3_loadsweep.py
 generate_summary.py    compile_final_report.py
-docs/report_v2.md      docs/figures_v2/</code></pre>
+docs/report_v2.md      docs/figures/</code></pre>
 <p><em>(실험 완료 후 갱신)</em></p>
 <!-- BEGIN AUTO: final_recommendation -->
 

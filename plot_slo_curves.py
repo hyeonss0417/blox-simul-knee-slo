@@ -13,7 +13,7 @@ import matplotlib
 matplotlib.rcParams["pdf.fonttype"] = 42
 plt.rcParams["font.family"] = ["Arial", "Helvetica", "sans-serif"]
 
-OUT = "docs/figures_v2"
+OUT = "docs/report_v2/figures"
 os.makedirs(OUT, exist_ok=True)
 
 # Curated list of representative prefixes — we don't want 30 lines on

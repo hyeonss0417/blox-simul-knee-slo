@@ -1,7 +1,7 @@
 """
 Algorithm visualisation for the Knee-SLO report.
 
-Produces 4 PNGs in docs/figures_v2/:
+Produces 4 PNGs in docs/report_v2/figures/:
   1. algo_urgency_curves.png  — knee vs linear vs sigmoid urgency
   2. algo_risk_zones.png      — annotated risk zones with example jobs
   3. algo_score_breakdown.png — how the final score is composed
@@ -18,7 +18,7 @@ matplotlib.rcParams["pdf.fonttype"] = 42
 plt.rcParams["font.family"] = ["Arial", "Helvetica", "sans-serif"]
 plt.rcParams["font.size"] = 11
 
-OUT = "docs/figures_v2"
+OUT = "docs/report_v2/figures"
 os.makedirs(OUT, exist_ok=True)
 
 

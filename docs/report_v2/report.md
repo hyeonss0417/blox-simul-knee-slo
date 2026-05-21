@@ -43,7 +43,7 @@
 
 → Metadata-only predictor (R² 0.39) 가 oracle 정보 없이 oracle SRTF 와 동등 성능, FIFO 대비 14 % 개선. Bucket 변형은 tail 을 절반으로 압축. **본 보고서의 가장 강력한 contribution**.
 
-![Contention Avg JCT](figures_v2/contention_avg.png)
+![Contention Avg JCT](figures/contention_avg.png)
 
 ### 1.1 핵심 positive result — Metadata predictor + SRTF는 oracle SRTF와 동등 (closed batch)
 
@@ -214,13 +214,13 @@ def knee(risk, θ, γ, c1, c2, c3):
 
 #### 한눈에 보는 스케줄링 step
 
-![Knee-SLO scheduling flow](figures_v2/algo_flow.png)
+![Knee-SLO scheduling flow](figures/algo_flow.png)
 
 매 시뮬레이터 라운드마다 위 흐름을 모든 활성 잡에 적용해 점수를 매기고, `(priority, score) ASC` 로 정렬한 뒤 상위 잡들을 free GPU에 배치한다.
 
 #### 3개의 위험 zone
 
-![Risk zones with example jobs](figures_v2/algo_risk_zones.png)
+![Risk zones with example jobs](figures/algo_risk_zones.png)
 
 - 🟢 **safe** (`risk < θ`): 아직 여유. urgency는 미미하고 size 항(SJF bias)이 결정함.
 - 🟠 **danger** (`θ ≤ risk < 1`): knee 비선형 부스트 시작. urgency가 빠르게 증가.
@@ -228,7 +228,7 @@ def knee(risk, θ, γ, c1, c2, c3):
 
 #### Urgency function 비교
 
-![Knee urgency function variants](figures_v2/algo_urgency_curves.png)
+![Knee urgency function variants](figures/algo_urgency_curves.png)
 
 - **knee_quadratic** (default): safe에서 거의 0, knee 직후 quadratic으로 가속, late에서 선형 폭주.
 - **linear**: 항상 `c1·risk`. 위험을 비례적으로만 다룸 — late zone 폭주 없음.
@@ -238,7 +238,7 @@ def knee(risk, θ, γ, c1, c2, c3):
 
 #### 점수가 어떻게 합쳐지는가
 
-![Score breakdown for 4 example jobs](figures_v2/algo_score_breakdown.png)
+![Score breakdown for 4 example jobs](figures/algo_score_breakdown.png)
 
 각 잡의 최종 score는 세 항의 합이다.
 
@@ -254,7 +254,7 @@ def knee(risk, θ, γ, c1, c2, c3):
 
 #### 한 잡의 risk 진화
 
-![One job's risk trajectory](figures_v2/algo_timeline.png)
+![One job's risk trajectory](figures/algo_timeline.png)
 
 대기 중에는 (`now − submit`) 증가로 risk가 선형 상승하고, 실행 중에는 (`remaining` 감소)로 risk가 평탄/하강한다. 위 예시처럼 18시간 대기 후 12시간 실행되어 30시간 만에 완료된 잡은 knee를 지나 danger zone에서 실행 우선권을 받게 된다.
 
@@ -291,7 +291,7 @@ FIFO 기준 SLO miss rate가 약 20–40% 수준이 되도록 calibrate. 워크�
 
 ### 4.1 Pareto frontier — JCT vs SLO miss
 
-![Pareto frontier: Avg JCT vs SLO miss](figures_v2/pareto_jct_vs_slo.png)
+![Pareto frontier: Avg JCT vs SLO miss](figures/pareto_jct_vs_slo.png)
 
 우상단(나쁜) ↔ 좌하단(좋은)으로 각 알고리즘이 위치.
 
@@ -299,19 +299,19 @@ FIFO 기준 SLO miss rate가 약 20–40% 수준이 되도록 calibrate. 워크�
 
 #### Avg JCT 전체 비교
 
-![Avg JCT v2](figures_v2/avg_jct_v2.png)
+![Avg JCT v2](figures/avg_jct_v2.png)
 
 #### SLO miss rate (6h target)
 
-![SLO miss v2](figures_v2/slo_miss_v2.png)
+![SLO miss v2](figures/slo_miss_v2.png)
 
 #### P95 Tardiness
 
-![P95 Tardiness](figures_v2/p95_tardiness_v2.png)
+![P95 Tardiness](figures/p95_tardiness_v2.png)
 
 #### Responsiveness
 
-![Responsiveness](figures_v2/responsiveness_v2.png)
+![Responsiveness](figures/responsiveness_v2.png)
 
 ### 4.2 Knee-SLO가 v1 SloScoring을 어떻게 개선했는가
 
@@ -426,7 +426,7 @@ linear가 quadratic 대비 24–32% 빠르다. **이유**: quadratic late-zone �
 
 > **단위**: 모든 JCT/SLO 수치는 **hours** 입니다 (워크로드 A의 mean 14.7h 스케일).
 
-> 실험 진행에 따라 자동 업데이트됨. 최신 표는 `docs/figures_v2/summary.json` 참조.
+> 실험 진행에 따라 자동 업데이트됨. 최신 표는 `docs/figures/summary.json` 참조.
 
 ### 5.1 종합 비교 표 (load = 8 jobs/hr, 128 GPUs)
 
@@ -473,7 +473,7 @@ Wave 1 결과를 보면 `θ ∈ {0.3, 0.5, 0.7}` 의 Knee 변형이 거의 동�
 | 36h        | 17%            | 느슨함                         |
 | 48h        | 13%            | 너무 느슨함                    |
 
-![SLO target sweep curve](figures_v2/slo_target_curve.png)
+![SLO target sweep curve](figures/slo_target_curve.png)
 
 흥미롭게도 **Knee θ=0.7 (SLO=6h)** 는 거의 모든 target에서 100% miss를 유지하며, 60h+ 에서야 비로소 떨어진다. 이는 6h 보정에서 알고리즘이 LJF-like로 동작하여 long-tail (60h 이상) 잡들이 quad-zone 우선순위로 누적된 결과다.
 
@@ -635,9 +635,9 @@ FIFO / LAS / SRTF / KneeSlo(best from W2)를 같은 load에서 비교.
 (아직 결과 없음)
 <!-- END AUTO: wave3_loadsweep -->
 
-![Load sweep — Avg JCT](figures_v2/loadsweep_avg.png)
-![Load sweep — P99 JCT](figures_v2/loadsweep_p99.png)
-![Load sweep — SLO miss rate](figures_v2/loadsweep_miss.png)
+![Load sweep — Avg JCT](figures/loadsweep_avg.png)
+![Load sweep — P99 JCT](figures/loadsweep_p99.png)
+![Load sweep — SLO miss rate](figures/loadsweep_miss.png)
 
 ---
 
@@ -699,11 +699,11 @@ Wave 1·2의 grid가 합리적 범위 (θ ∈ [0.3, 0.7]) 안에서만 휘저었
 
 **모든 17개 알고리즘이 통계적으로 동일한 결과**를 보였다 (Avg / P50 / P95 / P99 / Max / miss rate 모두 일치, raw JCT 값까지 일치).
 
-![Inference JCT CDF](figures_v2/inf_jct_cdf.png)
+![Inference JCT CDF](figures/inf_jct_cdf.png)
 
-![Inference JCT Summary](figures_v2/inf_summary.png)
+![Inference JCT Summary](figures/inf_summary.png)
 
-![Inference SLO curve](figures_v2/inf_slo_curve.png)
+![Inference SLO curve](figures/inf_slo_curve.png)
 
 ### 9.3 왜 모두 같은가? — 핵심 통찰
 
@@ -1134,7 +1134,7 @@ run_all_waves.sh      # master orchestrator
 
 plot_v2_results.py     plot_w3_loadsweep.py
 generate_summary.py    compile_final_report.py
-docs/report_v2.md      docs/figures_v2/
+docs/report_v2.md      docs/figures/
 ```
 
 

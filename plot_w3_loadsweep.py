@@ -10,7 +10,7 @@ import matplotlib
 matplotlib.rcParams["pdf.fonttype"] = 42
 plt.rcParams["font.family"] = ["Arial", "Helvetica", "sans-serif"]
 
-OUT = "docs/figures_v2"
+OUT = "docs/report_v2/figures"
 os.makedirs(OUT, exist_ok=True)
 LOADS = [4, 8, 12, 16]
 SCHEDS = ["Fifo", "Las", "Srtf", "KneeSlo"]

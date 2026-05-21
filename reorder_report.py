@@ -1,5 +1,5 @@
 """
-Reorder docs/report_v2.md so that:
+Reorder docs/report_v2/report.md so that:
   - High-level findings come FIRST (TL;DR + conclusion + algorithm intuition)
   - Detailed Wave results come MIDDLE
   - Debugging journal / trial-and-error come BOTTOM
@@ -7,8 +7,8 @@ Reorder docs/report_v2.md so that:
 import re
 import os
 
-SRC = "docs/report_v2.md"
-OUT = "docs/report_v2.md"
+SRC = "docs/report_v2/report.md"
+OUT = "docs/report_v2/report.md"
 
 text = open(SRC).read()
 

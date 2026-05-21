@@ -18,7 +18,7 @@ matplotlib.rcParams["pdf.fonttype"] = 42
 plt.rcParams["font.family"] = ["Arial", "Helvetica", "sans-serif"]
 plt.rcParams["font.size"] = 11
 
-OUT = "docs/figures_v2"
+OUT = "docs/report_v2/figures"
 os.makedirs(OUT, exist_ok=True)
 
 START, STOP = 3000, 3100

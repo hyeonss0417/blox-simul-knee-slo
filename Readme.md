@@ -7,8 +7,10 @@
 
 ## 📄 결과 보고서
 
-- **Markdown**: [`docs/report_v2.md`](docs/report_v2.md)
-- **HTML (권장)**: [`docs/report_v2.html`](docs/report_v2.html) — 사이드바 TOC + 임베드 차트
+- **HTML (권장)**: [`docs/report_v2/report.html`](docs/report_v2/report.html) — 사이드바 TOC + 임베드 차트
+- Markdown: [`docs/report_v2/report.md`](docs/report_v2/report.md)
+- 차트 (PNG / PDF): [`docs/report_v2/figures/`](docs/report_v2/figures/)
+- 스타일시트: `docs/report_v2/style.css`
 
 ## 🎯 핵심 발견
 
@@ -87,8 +89,11 @@ build_html.py           HTML 변환
 # 데이터
 cluster_job_log         Alibaba 2026 GenAI trace (변환된 Philly JSON)
 metadata_pred.json      훈련된 prediction 결과 (lookup table)
-docs/figures_v2/        모든 그래프 PNG/PDF
-docs/report_v2.{md,html} 최종 보고서
+docs/report_v2/         최종 보고서 폴더
+  ├── report.md         원본 마크다운
+  ├── report.html       사이드바 TOC + 임베드 차트
+  ├── style.css         report HTML 스타일
+  └── figures/          모든 PNG / PDF 차트
 ```
 
 ## 📝 라이센스 & 인용

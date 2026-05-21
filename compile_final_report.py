@@ -11,11 +11,11 @@ import re
 import subprocess
 import numpy as np
 
-REPORT = "docs/report_v2.md"
+REPORT = "docs/report_v2/report.md"
 
 
 def latest_summary():
-    p = "docs/figures_v2/summary_all.json"
+    p = "docs/report_v2/figures/summary_all.json"
     if not os.path.exists(p):
         return []
     with open(p) as f:

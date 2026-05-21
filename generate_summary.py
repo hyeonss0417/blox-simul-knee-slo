@@ -1,6 +1,6 @@
 """
 generate_summary.py — aggregates every v2_*_job_stats.json + w3_* into a
-master markdown table and writes it into docs/report_v2.md between
+master markdown table and writes it into docs/report_v2/report.md between
 auto-update markers.
 
 Also writes JSON summaries that other tools can pick up.
@@ -197,8 +197,8 @@ def main():
         return
 
     # Persist raw JSON for downstream use.
-    os.makedirs("docs/figures_v2", exist_ok=True)
-    with open("docs/figures_v2/summary_all.json", "w") as f:
+    os.makedirs("docs/report_v2/figures", exist_ok=True)
+    with open("docs/report_v2/figures/summary_all.json", "w") as f:
         json.dump(rows, f, indent=2)
 
     fifo = next((r for r in rows if r["prefix"] == "v2_fifo"), None)
@@ -214,19 +214,19 @@ def main():
     w1 = sorted([r for r in rows if r["wave"] in ("W0", "W1-base", "W1-grid")],
                 key=lambda r: r["avg_jct_h"])
     if w1:
-        write_section("docs/report_v2.md", "wave1_table", render_table(w1, fifo_avg))
+        write_section("docs/report_v2/report.md", "wave1_table", render_table(w1, fifo_avg))
 
     # --- Wave 2 table ---
     w2 = sorted([r for r in rows if r["wave"].startswith("W2")],
                 key=lambda r: r["avg_jct_h"])
     if w2:
-        write_section("docs/report_v2.md", "wave2_table", render_table(w2, fifo_avg))
+        write_section("docs/report_v2/report.md", "wave2_table", render_table(w2, fifo_avg))
 
     # --- Wave 4 table ---
     w4 = sorted([r for r in rows if r["wave"].startswith("W4")],
                 key=lambda r: r["avg_jct_h"])
     if w4:
-        write_section("docs/report_v2.md", "wave4_table", render_table(w4, fifo_avg))
+        write_section("docs/report_v2/report.md", "wave4_table", render_table(w4, fifo_avg))
 
     # --- Findings (auto-generated bullets) ---
     findings = []
@@ -257,7 +257,7 @@ def main():
             f"Avg JCT {diff:+.1f}%, SLO miss {knee_best['slo_miss_pct']-sjf['slo_miss_pct']:+.1f}p"
         )
     findings_md = "\n".join(findings)
-    write_section("docs/report_v2.md", "wave1_findings", findings_md)
+    write_section("docs/report_v2/report.md", "wave1_findings", findings_md)
 
     # --- Final recommendation (auto) ---
     # Score = avg_jct + 5 * tard_mean (heuristic Pareto blend)
@@ -283,7 +283,7 @@ def main():
             f"이 구성은 `avg_jct + 5 × tard_mean` 복합 점수 기준 가장 낮은 값을 "
             f"보였으며, Pareto frontier 상에서 JCT/SLO trade-off가 가장 균형 잡힘."
         )
-        write_section("docs/report_v2.md", "final_recommendation", "\n".join(rec))
+        write_section("docs/report_v2/report.md", "final_recommendation", "\n".join(rec))
 
     # --- Console output ---
     print(f"\n{'Config':32s} {'Wave':10s} {'AvgJCT(h)':>10s} {'P99(h)':>7s} "
@@ -295,7 +295,7 @@ def main():
               f"{r['p99_h']:7.2f} {r['slo_miss_pct']:7.1f}% "
               f"{r['tard_mean_h']:9.2f} {resp_str:>8s}")
 
-    print(f"\n→ docs/report_v2.md updated (wave1_table, wave1_findings, wave2_table)")
+    print(f"\n→ docs/report_v2/report.md updated (wave1_table, wave1_findings, wave2_table)")
 
 
 if __name__ == "__main__":
