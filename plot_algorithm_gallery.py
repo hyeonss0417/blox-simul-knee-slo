@@ -97,19 +97,28 @@ def algo_metasrtfslo(j):
     if w >= THETA*SLO:return (1, remaining_meta(j))
     return (2, remaining_meta(j))
 
+def algo_hrrnslo(j):
+    """HrrnSlo (ours): bucket × -R. All buckets use -R for secondary."""
+    w = wait(j); s = max(1, j[6])
+    R = (w + s) / s
+    if w >= SLO:        return (0, -R)
+    if w >= THETA*SLO:  return (1, -R)
+    return (2, -R)
+
 
 ALGORITHMS = [
-    ("FIFO",          algo_fifo,        "사용: submit_time",                     "submit ↑"),
-    ("LAS",           algo_las,         "사용: attained_service",                 "attained ↑"),
-    ("SRTF (oracle)", algo_srtf,        "사용: 진짜 remaining (oracle)",          "remaining ↑"),
-    ("SjfTotal",      algo_sjftotal,    "사용: category-mean total",              "pred_total ↑"),
-    ("MetaSrtf",      algo_metasrtf,    "사용: metadata-predicted remaining",     "meta-rem ↑"),
-    ("EDF",           algo_edf,         "사용: submit + SLO (절대 deadline)",     "deadline ↑"),
-    ("LLF",           algo_llf,         "사용: deadline - now - remaining",       "slack ↑"),
-    ("HRRN",          algo_hrrn,        "사용: (wait + service) / service",       "R ↓"),
-    ("LasSlo",        algo_lasslo,      "bucket + LAS",                           "bucket→attained"),
-    ("SrtfSlo",       algo_srtfslo,     "bucket + SRTF",                          "bucket→remaining"),
-    ("MetaSrtfSlo",   algo_metasrtfslo, "bucket + MetaSrtf",                      "bucket→meta-rem"),
+    ("FIFO",            algo_fifo,        "사용: submit_time",                     "submit ↑"),
+    ("LAS",             algo_las,         "사용: attained_service",                 "attained ↑"),
+    ("SRTF (oracle)",   algo_srtf,        "사용: 진짜 remaining (oracle)",          "remaining ↑"),
+    ("SjfTotal",        algo_sjftotal,    "사용: category-mean total",              "pred_total ↑"),
+    ("MetaSrtf",        algo_metasrtf,    "사용: metadata-predicted remaining",     "meta-rem ↑"),
+    ("EDF",             algo_edf,         "사용: submit + SLO (절대 deadline)",     "deadline ↑"),
+    ("LLF",             algo_llf,         "사용: deadline - now - remaining",       "slack ↑"),
+    ("HRRN",            algo_hrrn,        "사용: (wait + service) / service",       "R ↓"),
+    ("LasSlo",          algo_lasslo,      "bucket + LAS",                           "bucket→attained"),
+    ("SrtfSlo",         algo_srtfslo,     "bucket + SRTF",                          "bucket→remaining"),
+    ("MetaSrtfSlo",     algo_metasrtfslo, "bucket + MetaSrtf",                      "bucket→meta-rem"),
+    ("HrrnSlo ★ours",   algo_hrrnslo,     "bucket + HRRN-R (★ headline 알고리즘)",  "bucket→-R"),
 ]
 
 
@@ -199,28 +208,20 @@ def fig_feature_matrix():
     ]
     # rows = algorithms, cols = features. 1 = uses, 0 = doesn't
     usage = {
-        # FIFO
-        "FIFO":         [1,0,0,0,0,0,0,0],
-        # LAS
-        "LAS":          [0,1,0,0,0,0,0,0],
-        # SRTF (oracle)
-        "SRTF (oracle)":[0,0,0,0,1,0,0,0],
-        # SjfTotal
-        "SjfTotal":     [0,0,1,0,0,0,0,0],
-        # MetaSrtf
-        "MetaSrtf":     [0,0,0,1,0,0,0,0],
-        # EDF
-        "EDF":          [1,0,0,0,0,1,0,1],
-        # LLF
-        "LLF":          [1,0,0,0,1,1,1,1],
-        # HRRN
-        "HRRN":         [1,0,1,0,0,0,1,0],
-        # LasSlo
-        "LasSlo":       [1,1,0,0,0,1,1,0],
-        # SrtfSlo
-        "SrtfSlo":      [1,0,0,0,1,1,1,0],
-        # MetaSrtfSlo
-        "MetaSrtfSlo":  [1,0,0,1,0,1,1,0],
+        "FIFO":           [1,0,0,0,0,0,0,0],
+        "LAS":            [0,1,0,0,0,0,0,0],
+        "SRTF (oracle)":  [0,0,0,0,1,0,0,0],
+        "SjfTotal":       [0,0,1,0,0,0,0,0],
+        "MetaSrtf":       [0,0,0,1,0,0,0,0],
+        "EDF":            [1,0,0,0,0,1,0,1],
+        "LLF":            [1,0,0,0,1,1,1,1],
+        "HRRN":           [1,0,1,0,0,0,1,0],
+        "LasSlo":         [1,1,0,0,0,1,1,0],
+        "SrtfSlo":        [1,0,0,0,1,1,1,0],
+        "MetaSrtfSlo":    [1,0,0,1,0,1,1,0],
+        # HrrnSlo (ours, headline) — uses submit, category-mean total (for R),
+        # SLO_target, wait_time. Multi-signal: aging + bucket cliff.
+        "HrrnSlo ★ours":  [1,0,1,0,0,1,1,0],
     }
     rows = list(usage.keys())
     matrix = np.array([usage[r] for r in rows])
@@ -249,6 +250,7 @@ def fig_feature_matrix():
         "EDF": "#16a085", "LLF": "#c0392b",
         "HRRN": "#8e44ad",
         "LasSlo": "#34495e", "SrtfSlo": "#16a085", "MetaSrtfSlo": "#0d3b66",
+        "HrrnSlo ★ours": "#dc2626",   # red — headline
     }
     for i, r in enumerate(rows):
         ax.add_patch(mpatches.Rectangle((-0.7, i - 0.4), 0.3, 0.8,
@@ -298,7 +300,10 @@ def fig_pseudocode_cards():
          "★ 장점: SRTF 효율 + tail 보호"),
         ("MetaSrtfSlo",  "#0d3b66",
          "(bucket, metadata-predicted remaining)",
-         "★★ 본 연구 winning combo: non-Oracle + safe"),
+         "★ 추론 전용: non-Oracle + safe"),
+        ("HrrnSlo (ours) ★★★", "#dc2626",
+         "(bucket, -R)   where R = (wait + service) / service",
+         "★★★ HEADLINE — mixed workload (CoV≈2.5)에서 FIFO대비 -12~-50%, HRRN단독 1.5~3.5×"),
     ]
     n = len(cards)
     cols = 3
