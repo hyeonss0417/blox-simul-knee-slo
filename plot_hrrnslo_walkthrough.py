@@ -61,6 +61,10 @@ def s_hrrn(submit, service, t):
     R = (wait + service) / service
     return -R
 
+def s_srtf(submit, service, t):
+    """Pure SRTF (oracle): shortest remaining service first. No aging, no bucket."""
+    return service
+
 def s_srtfslo(submit, service, t):
     """SRTF + SLO bucket: bucket by wait threshold, secondary = service."""
     wait = max(0, t - submit)
@@ -86,6 +90,7 @@ def s_hrrnslo(submit, service, t):
 
 ts = np.arange(0, HORIZON + 1, TICK)
 rk_fifo     = [rank_x(s_fifo, t)     for t in ts]
+rk_srtf     = [rank_x(s_srtf, t)     for t in ts]
 rk_hrrn     = [rank_x(s_hrrn, t)     for t in ts]
 rk_srtfslo  = [rank_x(s_srtfslo, t)  for t in ts]
 rk_hrrnslo  = [rank_x(s_hrrnslo, t)  for t in ts]
@@ -102,14 +107,23 @@ for t in ts:
 fig, axes = plt.subplots(2, 1, figsize=(12, 7.5), gridspec_kw={"height_ratios":[3, 2]})
 
 ax = axes[0]
-ax.plot(ts, rk_fifo,    label="FIFO",         color="#888", lw=2.0, linestyle=":")
-ax.plot(ts, rk_hrrn,    label="HRRN",         color="#3b82f6", lw=2.0)
-ax.plot(ts, rk_srtfslo, label="SRTF + SLO bucket", color="#a16207", lw=2.0, linestyle="--")
-ax.plot(ts, rk_hrrnslo, label="HrrnSlo (ours)", color="#dc2626", lw=2.8)
+# Order: best for AVG JCT theory → worst for X. End with HrrnSlo for emphasis.
+ax.plot(ts, rk_srtf,    label="SRTF (oracle, theoretical avg-JCT optimal)",
+        color="#16a34a", lw=2.0, linestyle="--")
+ax.plot(ts, rk_srtfslo, label="SRTF + SLO bucket",
+        color="#a16207", lw=2.0, linestyle="--")
+ax.plot(ts, rk_hrrn,    label="HRRN",
+        color="#3b82f6", lw=2.0)
+ax.plot(ts, rk_fifo,    label="FIFO (oldest-first, always picks X)",
+        color="#888",    lw=2.0, linestyle=":")
+ax.plot(ts, rk_hrrnslo, label="HrrnSlo (ours)",
+        color="#dc2626", lw=2.8)
+
 ax.set_ylabel("Scheduling rank of training job X\n(1 = scheduled next, lower = better)")
 ax.set_xlabel("time (s)")
-ax.set_title("X (training, service=5000 s) vs. stream of inference Y$_k$ arriving every 100 s",
-             fontsize=12)
+ax.set_title("X (training, service=5000 s) competing with stream of inference Y$_k$ "
+             "(arriving every 100 s, each service=30 s)",
+             fontsize=11)
 ax.invert_yaxis()
 ax.set_xlim(0, HORIZON)
 ax.set_yticks([1, 2, 3, 4, 5, 6])
@@ -118,7 +132,19 @@ ax.axvline(THETA * SLO_TARGET, color="#f59e0b", linestyle=":", alpha=0.7)
 ax.axvline(SLO_TARGET,         color="#dc2626", linestyle=":", alpha=0.7)
 ax.text(THETA * SLO_TARGET + 30, 6.3, "warning\n(0.7·SLO)", fontsize=9, color="#92400e")
 ax.text(SLO_TARGET + 30, 6.3,         "critical\n(SLO=1500)", fontsize=9, color="#991b1b")
-ax.legend(loc="upper right", fontsize=10)
+
+# Annotate the "starvation" region for SRTF
+ax.annotate("SRTF: X always last\n→ starves forever",
+            xy=(2500, max(rk_srtf[-50:])), xytext=(2200, 4.5),
+            fontsize=9, color="#15803d",
+            arrowprops=dict(arrowstyle="->", color="#15803d", lw=1.2))
+# Annotate HrrnSlo's transition
+ax.annotate("HrrnSlo: bucket cliff\n→ rank 1 forever",
+            xy=(1700, 1), xytext=(1900, 2.5),
+            fontsize=9, color="#991b1b", fontweight="bold",
+            arrowprops=dict(arrowstyle="->", color="#dc2626", lw=1.5))
+
+ax.legend(loc="center right", fontsize=9, framealpha=0.95)
 
 ax2 = axes[1]
 ax2.plot(ts, r_x, color="#3b82f6", lw=2.2, label="R of X (response ratio)")

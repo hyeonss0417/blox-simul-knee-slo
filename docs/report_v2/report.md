@@ -431,22 +431,32 @@ m1g4/l25 ablation:
 
 ![Worked example](figures/hrrnslo_walkthrough.png)
 
-**Panel (a)** — X 의 scheduling rank (낮을수록 곧 실행) 시간 변화:
+**Panel (a)** — X 의 scheduling rank (낮을수록 곧 실행) 시간 변화, **5 알고리즘 비교**:
 
 | 알고리즘 | t < 1500 s | t ≥ 1500 s | 의미 |
 | -------- | ---------- | ---------- | ---- |
-| FIFO | rank 1 (항상) | rank 1 | X 가 모든 짧은 잡 차단 (head-of-line blocking) |
-| HRRN | rank 4–6 | rank 4–6 | aging 부족 — X 영원히 짧은 Y 에 밀림 |
-| SRTF+SLO | rank 4–6 | rank 4–6 | bucket 안 service 정렬 → X (가장 큼) 마지막 |
-| 🏆 **HrrnSlo** | rank 4–6 (HRRN 과 동일) | **rank 1 (절대 우선)** | t=1500 에 bucket 0 진입 → 즉시 실행 |
+| **SRTF (oracle)** — *이론 평균 JCT 최적* | rank 최하위 | rank 최하위 | X 의 service 가 항상 최대 → 영원히 starve. 이론 최적이 open system 에서 망가지는 전형 |
+| SRTF + SLO bucket | rank 최하위 | rank 최하위 | bucket 안 secondary 가 service → X 가장 마지막. SRTF 와 거의 동일 |
+| HRRN | rank 4–6 | rank 4–6 | R aging 약간 도움, but Y 의 빠른 R 증가에 대부분 밀림 |
+| FIFO | rank 1 (항상) | rank 1 | X 가 모든 짧은 잡 차단 (head-of-line blocking) — 정반대 극단 |
+| 🏆 **HrrnSlo** | rank 4–6 (HRRN 유사) | **rank 1 (절대 우선)** | t=1500 에 bucket 0 진입 → starvation 종료, 짧은 잡 효율도 유지 |
+
+**핵심 trade-off**:
+
+| 알고리즘 | 짧은 잡 효율 | 긴 잡 보호 | 종합 |
+| -------- | ----------- | --------- | ---- |
+| SRTF (oracle) | 🏆 이론 최적 | 💀 영원히 starve | 💀 mixed 에서 평균 JCT 폭발 (§3.4) |
+| HRRN | 좋음 | 보호 미흡 | △ X 결국 starve |
+| FIFO | 💀 모두 막힘 | 🏆 즉시 | △ 효율 나쁨 |
+| 🏆 **HrrnSlo** | **좋음** | **1500 s 이내 보장** | 🏆 두 목표 동시 달성 |
+
+→ **이론 평균 JCT 최적 (SRTF) 이 실제로는 mixed open-system 에서 망가진다**. HrrnSlo 는 짧은 잡 효율 (HRRN R) + 긴 잡 보호 (bucket cliff) 동시에 — 두 극단의 균형.
 
 **Panel (b)** — X 의 R 곡선:
 
 - 0 ~ 3000 s 사이 R 이 1.0 → 1.60 까지 **천천히 증가** (slope = 1/5000 = 0.0002 per second)
 - R 만으로는 X 가 짧은 Y 에 못 이김 (Y 가 100 s 기다리면 R_Y ≈ 4.33)
 - 1500 s 의 bucket cliff 가 protection 의 핵심
-
-→ HrrnSlo = "평소 HRRN aging (짧은 + 오래 기다린 잡 favor)" + "위험시 bucket cliff (절대 우선)"
 
 #### 4.4.8 복잡도 / Overhead
 

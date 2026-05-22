@@ -1,7 +1,5 @@
 <!DOCTYPE html>
-<html lang="ko"><head>
-<meta charset="utf-8">
-<title>젠슨황팀 — 최종 발표 Deck</title>
+<html lang="ko"><head><meta charset="utf-8"><title>젠슨황팀 — 최종 발표 Deck</title>
 <style>
 body { max-width: 1100px; margin: 0 auto; padding: 32px 48px;
        font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
@@ -19,7 +17,7 @@ table { border-collapse: collapse; width: 100%; margin: 16px 0;
          background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
          border-radius: 6px; overflow: hidden; }
 th, td { padding: 10px 14px; border-bottom: 1px solid #e5e7eb; text-align: left; font-size: 0.95em; }
-th { background: #1e293b; color: #f1f5f9; font-weight: 600; letter-spacing: 0.02em; }
+th { background: #1e293b; color: #f1f5f9; font-weight: 600; }
 tr:nth-child(even) td { background: #f8fafc; }
 tr:hover td { background: #fef3c7; }
 img { max-width: 100%; border: 1px solid #e5e7eb; border-radius: 6px;
@@ -32,19 +30,13 @@ code { background: #fef3c7; padding: 2px 7px; border-radius: 3px;
 pre { background: #1e293b; color: #e2e8f0; padding: 18px; border-radius: 8px;
        overflow-x: auto; font-size: 0.88em; line-height: 1.55; }
 pre code { background: transparent; padding: 0; color: inherit; }
-ul, ol { padding-left: 1.5em; }
-li { margin: 4px 0; }
+ul, ol { padding-left: 1.5em; } li { margin: 4px 0; }
 strong { color: #0f172a; }
 a { color: #2563eb; text-decoration: none; border-bottom: 1px dotted #93c5fd; }
 a:hover { background: #fef3c7; border-bottom-style: solid; }
-@media print {
-  body { background: white; padding: 16px 32px; }
-  h2 { page-break-before: always; }
-  hr { display: none; }
-  img { box-shadow: none; }
-}
-</style>
-</head><body>
+@media print { body { background: white; padding: 16px 32px; }
+  h2 { page-break-before: always; } hr { display: none; } img { box-shadow: none; } }
+</style></head><body>
 <h1 id="gpu-클러스터-스케줄링-추론훈련-혼합-환경에서의-slo-aware-알고리즘">GPU 클러스터 스케줄링: 추론·훈련 혼합 환경에서의 SLO-aware 알고리즘</h1>
 <p><strong>26-1 컴퓨터종합설계 · 젠슨황팀</strong> (윤영준, 박준열, 전현성, 부광민)</p>
 <p>발표용 요약 deck · 본 보고서: <a href="report.md">report.md</a></p>
@@ -350,15 +342,53 @@ bucket 0 (critical): wait ≥ SLO            → 즉시 실행 보장</code></pr
 <p>→ X 가 1500 s 기다리면 bucket 0 → 다른 모든 잡보다 절대 우선 → <strong>starvation 불가능</strong>.</p>
 <h3 id="정확히-무엇이-일어나는가-worked-example">정확히 무엇이 일어나는가 (worked example)</h3>
 <p><img src="figures/hrrnslo_walkthrough.png" alt="Worked example" /></p>
-<p><strong>위 그림 panel (a)</strong>: 동일 시나리오 (X 1 개 + 매 100 s 마다 Y_k 도착) 에서 4 알고리즘이 X 에게 부여하는 rank (낮을수록 곧 실행됨).</p>
+<p><strong>위 그림 panel (a)</strong>: 동일 시나리오 (X 1 개 + 매 100 s 마다 Y_k 도착) 에서 <strong>5 알고리즘</strong> 이 X 에게 부여하는 rank (낮을수록 곧 실행됨).</p>
 <ul>
-<li><strong>FIFO</strong> (회색 점선): X 가 항상 가장 오래되어 rank 1 — 짧은 추론들이 모두 막힘 (FIFO 의 head-of-line blocking)</li>
-<li><strong>HRRN</strong> (파랑): X 는 거의 항상 rank 4~6. 짧은 Y_k 들이 빠른 R 증가로 X 압도</li>
-<li><strong>SRTF+SLO</strong> (갈색 점선): bucket 은 있지만 secondary 가 service → X 가 가장 service 커서 bucket 안에서도 마지막</li>
-<li>🏆 <strong>HrrnSlo</strong> (빨강): t &lt; 1500 까지는 HRRN 과 비슷, <strong>t = 1500 부터 bucket 0 으로 점프하며 항상 rank 1 유지</strong></li>
+<li><strong>SRTF</strong> (초록 점선) — <em>이론적 평균 JCT 최적</em> (oracle, closed batch 기준): X 가 가장 큰 service → <strong>항상 rank 최하위 → 영원히 starve</strong>. 이론 최적이 open system 에서 망가지는 전형적 예.</li>
+<li><strong>SRTF + SLO bucket</strong> (갈색 점선): bucket 추가했지만 secondary 가 여전히 service → X 는 bucket 안에서도 항상 마지막. 위 SRTF 와 거의 겹침.</li>
+<li><strong>HRRN</strong> (파랑): R 이 약간 도와줘 가끔 rank 1~2 까지 올라가지만, 짧은 Y_k 들의 빠른 R 증가에 대부분 시간 밀림.</li>
+<li><strong>FIFO</strong> (회색 점선): 정반대 극단 — X 가 항상 가장 오래되어 rank 1. 짧은 추론들이 모두 막힘 (head-of-line blocking).</li>
+<li>🏆 <strong>HrrnSlo</strong> (빨강 굵게): t &lt; 1500 까지 HRRN 과 유사, <strong>t = 1500 부터 bucket 0 진입 → 항상 rank 1</strong> — X 가 즉시 실행 보장.</li>
 </ul>
-<p><strong>panel (b)</strong>: X 의 R 곡선 — 1000 s 기다려도 1.0 → 1.20 밖에 안 자람. R 만으로는 protection 부족. Bucket 의 cliff 가 필요.</p>
-<p>→ HrrnSlo = <strong>점진적 HRRN aging (보통 때)</strong> + <strong>bucket cliff (위험 시 safety net)</strong>.</p>
+<p><strong>Trade-off 한눈에</strong>:</p>
+<table>
+<thead>
+<tr class="header">
+<th>알고리즘</th>
+<th>짧은 잡 평균</th>
+<th>긴 잡 (X)</th>
+<th>종합</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>SRTF (oracle)</td>
+<td>🏆 최적</td>
+<td>💀 starve</td>
+<td>💀 평균 JCT 폭발</td>
+</tr>
+<tr class="even">
+<td>HRRN</td>
+<td>좋음</td>
+<td>느린 보호</td>
+<td>△ X 가 결국 starve</td>
+</tr>
+<tr class="odd">
+<td>FIFO</td>
+<td>💀 모두 막힘</td>
+<td>🏆 즉시</td>
+<td>△ 효율 나쁨</td>
+</tr>
+<tr class="even">
+<td>🏆 <strong>HrrnSlo</strong></td>
+<td><strong>좋음</strong> (HRRN 같이)</td>
+<td><strong>1500 s 이내 보장</strong></td>
+<td>🏆 둘 다</td>
+</tr>
+</tbody>
+</table>
+<p><strong>panel (b)</strong>: X 의 R 곡선 — 1000 s 기다려도 1.0 → 1.20 밖에 안 자람 (slope 0.0002 /s). R 만으로는 protection 부족 → bucket 의 cliff (1500 s) 가 핵심.</p>
+<p>→ HrrnSlo = <strong>점진적 HRRN aging (보통 때)</strong> + <strong>bucket cliff (위험 시 safety net)</strong> = <strong>이론 최적(SRTF) 의 효율 + FIFO 의 공평성</strong> 을 동시에.</p>
 <hr />
 <h2 id="-slide-6c--hrrnslo-알고리즘-정확히--디자인-결정">🎯 Slide 6c — HrrnSlo 알고리즘 (정확히) + 디자인 결정</h2>
 <h3 id="전체-의사코드-50-줄-내-schedulershrrn_slopy">전체 의사코드 (50 줄 내, <a href="../../schedulers/hrrn_slo.py">schedulers/hrrn_slo.py</a>)</h3>

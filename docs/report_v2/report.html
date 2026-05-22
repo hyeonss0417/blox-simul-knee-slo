@@ -1031,7 +1031,7 @@ class HrrnSlo(SchedulingPolicy):
 <h4 id="447-worked-example--시간에-따른-x-의-rank-변화">4.4.7 Worked example — 시간에 따른 X 의 rank 변화</h4>
 <p>시나리오: 긴 훈련 잡 X (service = 5000 s) 가 t=0 도착, 매 100 s 마다 짧은 추론 Y_k (service = 30 s) 도착.</p>
 <p><img src="figures/hrrnslo_walkthrough.png" alt="Worked example" /></p>
-<p><strong>Panel (a)</strong> — X 의 scheduling rank (낮을수록 곧 실행) 시간 변화:</p>
+<p><strong>Panel (a)</strong> — X 의 scheduling rank (낮을수록 곧 실행) 시간 변화, <strong>5 알고리즘 비교</strong>:</p>
 <table>
 <thead>
 <tr class="header">
@@ -1043,38 +1043,81 @@ class HrrnSlo(SchedulingPolicy):
 </thead>
 <tbody>
 <tr class="odd">
-<td>FIFO</td>
-<td>rank 1 (항상)</td>
-<td>rank 1</td>
-<td>X 가 모든 짧은 잡 차단 (head-of-line blocking)</td>
+<td><strong>SRTF (oracle)</strong> — <em>이론 평균 JCT 최적</em></td>
+<td>rank 최하위</td>
+<td>rank 최하위</td>
+<td>X 의 service 가 항상 최대 → 영원히 starve. 이론 최적이 open system 에서 망가지는 전형</td>
 </tr>
 <tr class="even">
+<td>SRTF + SLO bucket</td>
+<td>rank 최하위</td>
+<td>rank 최하위</td>
+<td>bucket 안 secondary 가 service → X 가장 마지막. SRTF 와 거의 동일</td>
+</tr>
+<tr class="odd">
 <td>HRRN</td>
 <td>rank 4–6</td>
 <td>rank 4–6</td>
-<td>aging 부족 — X 영원히 짧은 Y 에 밀림</td>
-</tr>
-<tr class="odd">
-<td>SRTF+SLO</td>
-<td>rank 4–6</td>
-<td>rank 4–6</td>
-<td>bucket 안 service 정렬 → X (가장 큼) 마지막</td>
+<td>R aging 약간 도움, but Y 의 빠른 R 증가에 대부분 밀림</td>
 </tr>
 <tr class="even">
+<td>FIFO</td>
+<td>rank 1 (항상)</td>
+<td>rank 1</td>
+<td>X 가 모든 짧은 잡 차단 (head-of-line blocking) — 정반대 극단</td>
+</tr>
+<tr class="odd">
 <td>🏆 <strong>HrrnSlo</strong></td>
-<td>rank 4–6 (HRRN 과 동일)</td>
+<td>rank 4–6 (HRRN 유사)</td>
 <td><strong>rank 1 (절대 우선)</strong></td>
-<td>t=1500 에 bucket 0 진입 → 즉시 실행</td>
+<td>t=1500 에 bucket 0 진입 → starvation 종료, 짧은 잡 효율도 유지</td>
 </tr>
 </tbody>
 </table>
+<p><strong>핵심 trade-off</strong>:</p>
+<table>
+<thead>
+<tr class="header">
+<th>알고리즘</th>
+<th>짧은 잡 효율</th>
+<th>긴 잡 보호</th>
+<th>종합</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>SRTF (oracle)</td>
+<td>🏆 이론 최적</td>
+<td>💀 영원히 starve</td>
+<td>💀 mixed 에서 평균 JCT 폭발 (§3.4)</td>
+</tr>
+<tr class="even">
+<td>HRRN</td>
+<td>좋음</td>
+<td>보호 미흡</td>
+<td>△ X 결국 starve</td>
+</tr>
+<tr class="odd">
+<td>FIFO</td>
+<td>💀 모두 막힘</td>
+<td>🏆 즉시</td>
+<td>△ 효율 나쁨</td>
+</tr>
+<tr class="even">
+<td>🏆 <strong>HrrnSlo</strong></td>
+<td><strong>좋음</strong></td>
+<td><strong>1500 s 이내 보장</strong></td>
+<td>🏆 두 목표 동시 달성</td>
+</tr>
+</tbody>
+</table>
+<p>→ <strong>이론 평균 JCT 최적 (SRTF) 이 실제로는 mixed open-system 에서 망가진다</strong>. HrrnSlo 는 짧은 잡 효율 (HRRN R) + 긴 잡 보호 (bucket cliff) 동시에 — 두 극단의 균형.</p>
 <p><strong>Panel (b)</strong> — X 의 R 곡선:</p>
 <ul>
 <li>0 ~ 3000 s 사이 R 이 1.0 → 1.60 까지 <strong>천천히 증가</strong> (slope = 1/5000 = 0.0002 per second)</li>
 <li>R 만으로는 X 가 짧은 Y 에 못 이김 (Y 가 100 s 기다리면 R_Y ≈ 4.33)</li>
 <li>1500 s 의 bucket cliff 가 protection 의 핵심</li>
 </ul>
-<p>→ HrrnSlo = "평소 HRRN aging (짧은 + 오래 기다린 잡 favor)" + "위험시 bucket cliff (절대 우선)"</p>
 <h4 id="448-복잡도--overhead">4.4.8 복잡도 / Overhead</h4>
 <table>
 <thead>

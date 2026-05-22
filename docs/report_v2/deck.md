@@ -241,16 +241,26 @@ bucket 0 (critical): wait ≥ SLO            → 즉시 실행 보장
 
 ![Worked example](figures/hrrnslo_walkthrough.png)
 
-**위 그림 panel (a)**: 동일 시나리오 (X 1 개 + 매 100 s 마다 Y_k 도착) 에서 4 알고리즘이 X 에게 부여하는 rank (낮을수록 곧 실행됨).
+**위 그림 panel (a)**: 동일 시나리오 (X 1 개 + 매 100 s 마다 Y_k 도착) 에서 **5 알고리즘** 이 X 에게 부여하는 rank (낮을수록 곧 실행됨).
 
-- **FIFO** (회색 점선): X 가 항상 가장 오래되어 rank 1 — 짧은 추론들이 모두 막힘 (FIFO 의 head-of-line blocking)
-- **HRRN** (파랑): X 는 거의 항상 rank 4~6. 짧은 Y_k 들이 빠른 R 증가로 X 압도
-- **SRTF+SLO** (갈색 점선): bucket 은 있지만 secondary 가 service → X 가 가장 service 커서 bucket 안에서도 마지막
-- 🏆 **HrrnSlo** (빨강): t < 1500 까지는 HRRN 과 비슷, **t = 1500 부터 bucket 0 으로 점프하며 항상 rank 1 유지**
+- **SRTF** (초록 점선) — *이론적 평균 JCT 최적* (oracle, closed batch 기준): X 가 가장 큰 service → **항상 rank 최하위 → 영원히 starve**. 이론 최적이 open system 에서 망가지는 전형적 예.
+- **SRTF + SLO bucket** (갈색 점선): bucket 추가했지만 secondary 가 여전히 service → X 는 bucket 안에서도 항상 마지막. 위 SRTF 와 거의 겹침.
+- **HRRN** (파랑): R 이 약간 도와줘 가끔 rank 1~2 까지 올라가지만, 짧은 Y_k 들의 빠른 R 증가에 대부분 시간 밀림.
+- **FIFO** (회색 점선): 정반대 극단 — X 가 항상 가장 오래되어 rank 1. 짧은 추론들이 모두 막힘 (head-of-line blocking).
+- 🏆 **HrrnSlo** (빨강 굵게): t < 1500 까지 HRRN 과 유사, **t = 1500 부터 bucket 0 진입 → 항상 rank 1** — X 가 즉시 실행 보장.
 
-**panel (b)**: X 의 R 곡선 — 1000 s 기다려도 1.0 → 1.20 밖에 안 자람. R 만으로는 protection 부족. Bucket 의 cliff 가 필요.
+**Trade-off 한눈에**:
 
-→ HrrnSlo = **점진적 HRRN aging (보통 때)** + **bucket cliff (위험 시 safety net)**.
+| 알고리즘 | 짧은 잡 평균 | 긴 잡 (X) | 종합 |
+| -------- | ----------- | --------- | ---- |
+| SRTF (oracle) | 🏆 최적 | 💀 starve | 💀 평균 JCT 폭발 |
+| HRRN | 좋음 | 느린 보호 | △ X 가 결국 starve |
+| FIFO | 💀 모두 막힘 | 🏆 즉시 | △ 효율 나쁨 |
+| 🏆 **HrrnSlo** | **좋음** (HRRN 같이) | **1500 s 이내 보장** | 🏆 둘 다 |
+
+**panel (b)**: X 의 R 곡선 — 1000 s 기다려도 1.0 → 1.20 밖에 안 자람 (slope 0.0002 /s). R 만으로는 protection 부족 → bucket 의 cliff (1500 s) 가 핵심.
+
+→ HrrnSlo = **점진적 HRRN aging (보통 때)** + **bucket cliff (위험 시 safety net)** = **이론 최적(SRTF) 의 효율 + FIFO 의 공평성** 을 동시에.
 
 ---
 
