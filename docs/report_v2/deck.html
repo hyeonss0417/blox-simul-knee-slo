@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="ko"><head>
+<meta charset="utf-8">
+<title>젠슨황팀 — 최종 발표 Deck</title>
+<style>
+body { max-width: 1100px; margin: 0 auto; padding: 32px 48px;
+       font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+                    "Pretendard", "Noto Sans KR", sans-serif;
+       line-height: 1.65; color: #1f2937; background: #fafafa; }
+h1 { border-bottom: 3px solid #111; padding-bottom: 8px; margin-top: 56px;
+      font-size: 1.9em; }
+h2 { background: linear-gradient(90deg, #fef3c7 0%, transparent 100%);
+      padding: 14px 18px; border-left: 6px solid #d97706;
+      margin-top: 56px; font-size: 1.5em; border-radius: 0 6px 6px 0; }
+h3 { color: #1e40af; margin-top: 32px; font-size: 1.18em; }
+hr { border: 0; border-top: 2px dashed #cbd5e1; margin: 64px 0 32px; }
+table { border-collapse: collapse; width: 100%; margin: 16px 0;
+         background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+         border-radius: 6px; overflow: hidden; }
+th, td { padding: 10px 14px; border-bottom: 1px solid #e5e7eb;
+         text-align: left; font-size: 0.95em; }
+th { background: #1e293b; color: #f1f5f9; font-weight: 600;
+     letter-spacing: 0.02em; }
+tr:nth-child(even) td { background: #f8fafc; }
+tr:hover td { background: #fef3c7; }
+img { max-width: 100%; border: 1px solid #e5e7eb; border-radius: 6px;
+       box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin: 12px 0; }
+blockquote { border-left: 5px solid #2563eb; background: #eff6ff;
+              padding: 14px 22px; margin: 18px 0;
+              border-radius: 0 6px 6px 0; font-size: 1.08em;
+              color: #1e3a8a; }
+code { background: #fef3c7; padding: 2px 7px; border-radius: 3px;
+        font-size: 0.92em; color: #92400e; }
+pre { background: #1e293b; color: #e2e8f0; padding: 18px; border-radius: 8px;
+       overflow-x: auto; font-size: 0.88em; line-height: 1.55; }
+pre code { background: transparent; padding: 0; color: inherit; }
+ul, ol { padding-left: 1.5em; }
+li { margin: 4px 0; }
+strong { color: #0f172a; }
+a { color: #2563eb; text-decoration: none; border-bottom: 1px dotted #93c5fd; }
+a:hover { background: #fef3c7; border-bottom-style: solid; }
+@media print {
+  body { background: white; padding: 16px 32px; }
+  h2 { page-break-before: always; }
+  hr { display: none; }
+  img { box-shadow: none; }
+}
+</style>
+</head><body>
+<h1 id="gpu-클러스터-스케줄링-추론훈련-혼합-환경에서의-slo-aware-알고리즘">GPU 클러스터 스케줄링: 추론·훈련 혼합 환경에서의 SLO-aware 알고리즘</h1>
+<p><strong>26-1 컴퓨터종합설계 · 젠슨황팀</strong> (윤영준, 박준열, 전현성, 부광민)</p>
+<p>발표용 요약 deck · 본 보고서: <a href="report.md">report.md</a></p>
+<hr />
+<h2 id="-slide-1--한-문장-요약">🎯 Slide 1 — 한 문장 요약</h2>
+<blockquote>
+<p><strong>추론 + 훈련이 함께 도는 GPU 클러스터에서, 우리가 제안한 HrrnSlo 스케줄러가 FIFO 대비 평균 작업완료시간(JCT)을 최대 50 % 단축한다.</strong></p>
+<p>Oracle 정보 (실제 실행 시간) 없이, 작업 제출 시점에 알 수 있는 정보만으로.</p>
+</blockquote>
+<p><img src="figures/hrrnslo_headline.png" alt="핵심 결과" /></p>
+<p>좌측: 4 가지 환경 모두에서 HrrnSlo(빨강)가 1 위 / 우측: JCT 분포 전체가 왼쪽으로 이동.</p>
+<hr />
+<h2 id="-slide-2--왜-이-문제인가">🎯 Slide 2 — 왜 이 문제인가</h2>
+<h3 id="배경">배경</h3>
+<ul>
+<li>GPU 클러스터에서 <strong>추론(inference) 잡이 폭증</strong> — ChatGPT 류 LLM, Stable Diffusion 이미지 생성 등.</li>
+<li>동시에 <strong>모델 훈련(training) 잡이 같은 클러스터에서 돌고 있음</strong> (production 실태). NVIDIA, Alibaba 등 모두 mixed 클러스터.</li>
+<li><strong>문제</strong>: 짧은 추론(수십 초)과 긴 훈련(수십 분~수 시간)이 섞이면 기존 스케줄러가 다 부서진다.
+<ul>
+<li>FIFO: 큰 훈련 잡이 GPU 점유 → 짧은 추론들 줄줄이 막힘</li>
+<li>SRTF / LAS (짧은 잡 우선): 추론이 계속 쏟아져 들어와 <strong>큰 훈련 잡 영원히 starvation</strong></li>
+<li>EDF (deadline 기반): SLO 정의가 잡 종류마다 다르므로 적용 어려움</li>
+</ul></li>
+</ul>
+<h3 id="우리가-풀려는-질문">우리가 풀려는 질문</h3>
+<p><strong>"단일 스케줄러 하나로, 추론 + 훈련 혼합 워크로드에서, 평균 JCT 도 짧고, tail latency 도 안전하고, starvation 도 안 일어나게 할 수 있는가?"</strong></p>
+<hr />
+<h2 id="-slide-3--데이터셋-alibaba-2026-genai-trace--합성-training">🎯 Slide 3 — 데이터셋: Alibaba 2026 GenAI Trace + 합성 Training</h2>
+<h3 id="31-원본-trace--alibaba-2026-genai">3.1 원본 trace — Alibaba 2026 GenAI</h3>
+<ul>
+<li>Stable Diffusion 추론 요청 <strong>26,793 개</strong></li>
+<li>잡당 실행 시간 5 ~ 145 초 (평균 23 초, std 21 초, <strong>CoV = 0.73</strong>)</li>
+<li>잡마다 제출 시점에 알려진 metadata 6 가지:
+<ul>
+<li><code>num_inference_steps</code> (28 ~ 40)</li>
+<li><code>num_images_per_prompt</code> (1 ~ 8)</li>
+<li><code>predict_type</code> (TXT_2_IMG / IMG_2_IMG / INPAINTING)</li>
+<li><code>checkpoint_model</code> (LoRA 20 종 중 하나)</li>
+<li><code>prompt_length</code>, <code>num_lora</code></li>
+</ul></li>
+</ul>
+<p>→ 이 metadata 가 <strong>scheduler 입력 신호로 사용 가능</strong> (oracle 아님; 사용자가 API 요청에 명시).</p>
+<h3 id="32-mixed-trace--추론--합성-training">3.2 Mixed trace — 추론 + 합성 Training</h3>
+<p>순수 추론은 잡들이 너무 균일해서 (CoV 0.73) 알고리즘 차이가 잘 안 드러난다. 실제 클러스터에 가깝게 재구성:</p>
+<pre class="python"><code># build_mixed_trace.py 핵심
+TRAINING_FRACTION = 0.20    # 잡의 20% 를 training 으로 교체
+def sample_training_duration():
+    # lognormal 10분 ~ 2시간
+    mu, sigma = math.log(1800), 0.8
+    return max(600, min(7200, random.lognormvariate(mu, sigma)))</code></pre>
+<p>결과: <strong>CoV 0.73 → 2.46 (3.4× 증가)</strong>. 짧은 추론과 긴 훈련이 섞여 SJF 류 알고리즘이 의미 있는 환경.</p>
+<h3 id="33-큐잉-이론적-의미">3.3 큐잉 이론적 의미</h3>
+<p>Pollaczek-Khinchine 공식: M/G/1 에서 SJF 의 평균 wait 절약 ≈ <strong>CoV² / 2</strong>.</p>
+<table>
+<thead>
+<tr class="header">
+<th>Workload</th>
+<th>CoV</th>
+<th>이론적 SJF gain</th>
+<th>실측 (FIFO 대비)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>순수 추론</td>
+<td>0.73</td>
+<td>~26 %</td>
+<td>21 % ✓</td>
+</tr>
+<tr class="even">
+<td>Mixed (제안)</td>
+<td>2.46</td>
+<td>~300 % (이론적 상한)</td>
+<td><strong>−50 % (HrrnSlo)</strong></td>
+</tr>
+</tbody>
+</table>
+<p>→ Mixed 환경에서는 스케줄링 선택이 훨씬 중요해진다는 <strong>이론적 정당성</strong> 확보.</p>
+<hr />
+<h2 id="-slide-4--blox-구현-eurosys-24-시뮬레이터">🎯 Slide 4 — Blox 구현 (EuroSys '24 시뮬레이터)</h2>
+<h3 id="41-blox-가-뭔가">4.1 Blox 가 뭔가</h3>
+<ul>
+<li>2024 년 EuroSys 에 발표된 <strong>GPU 클러스터 스케줄링 시뮬레이터</strong> (Princeton)</li>
+<li>진짜 GPU 없이 trace 를 재생하여 다양한 스케줄러를 비교 가능</li>
+<li>구조:</li>
+</ul>
+<pre><code>        ┌───────────────────────┐
+        │ simulator_simple.py   │  ← trace 읽고 잡 생성
+        │ (gRPC server, port A) │     주기적으로 wait queue push
+        └──────────┬────────────┘
+                   │ gRPC
+                   ↓
+        ┌───────────────────────┐
+        │ run_scheduler.py      │  ← 우리 알고리즘 살아있는 곳
+        │ (gRPC client, port B) │     매 round 에 schedule() 호출
+        └───────────────────────┘</code></pre>
+<h3 id="42-우리가-한-일">4.2 우리가 한 일</h3>
+<ol type="1">
+<li><strong>6 개 새 스케줄러 구현</strong> (<code>schedulers/</code> 하위 .py 파일)
+<ul>
+<li>LasSlo, SrtfSlo, MetaSrtf, MetaSrtfSlo, MetaLasSlo, <strong>HrrnSlo</strong> (headline)</li>
+</ul></li>
+<li><strong>plug-in 인터페이스</strong>: <code>schedule(job_dict, cluster_state, gpu_df)</code> 를 구현하면 곧장 등록</li>
+<li><strong>실험 자동화</strong>: 알고리즘 × 환경(GPU 수, load) × parameter 의 sweep 을 일관 실행 (<code>run_*.sh</code>)</li>
+<li><strong>버그 fix 기여</strong>:
+<ul>
+<li><code>exponential=True</code> 라벨 버그 (simulator 가 trace 실제 실행 시간을 gavel-like synthetic 으로 덮어쓰는 디폴트) 발견 및 정정</li>
+<li>시뮬레이터 hang (gRPC <code>wait_for_termination</code> 무한 대기) workaround</li>
+</ul></li>
+</ol>
+<h3 id="43-핵심-인터페이스">4.3 핵심 인터페이스</h3>
+<pre class="python"><code># schedulers/&lt;name&gt;.py 형태
+class HrrnSlo(SchedulingPolicy):
+    def schedule(self, job_dict, cluster_state, gpu_df):
+        # 1) 각 잡에 점수 부여
+        # 2) (priority, bucket, secondary) tuple 로 정렬
+        # 3) {&quot;job_order&quot;: sorted_list, &quot;run_all_jobs&quot;: False} 반환</code></pre>
+<p>→ Blox 가 반환값에 따라 작업 launch / preempt / queue. 우리는 정렬 키만 잘 만들면 됨.</p>
+<hr />
+<h2 id="-slide-5--알고리즘-한눈에-보기">🎯 Slide 5 — 알고리즘 한눈에 보기</h2>
+<h3 id="51-기존-baselines-blox-에-이미-있음">5.1 기존 baselines (Blox 에 이미 있음)</h3>
+<table>
+<thead>
+<tr class="header">
+<th>알고리즘</th>
+<th>정렬 신호</th>
+<th>특징</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>FIFO</strong></td>
+<td>도착 시간</td>
+<td>단순, 공정</td>
+</tr>
+<tr class="even">
+<td><strong>LAS</strong> (Least Attained Service)</td>
+<td>현재까지 받은 service</td>
+<td>짧은 잡 우선, aging X</td>
+</tr>
+<tr class="odd">
+<td><strong>SRTF</strong> (Shortest Remaining Time First)</td>
+<td>남은 실행 시간 (<strong>oracle</strong>)</td>
+<td>평균 JCT 이론 최적, <strong>starvation 문제</strong></td>
+</tr>
+<tr class="even">
+<td><strong>HRRN</strong> (Highest Response Ratio Next)</td>
+<td><code>(wait + service) / service</code></td>
+<td>짧은 잡 + aging 동시</td>
+</tr>
+<tr class="odd">
+<td><strong>EDF / LLF</strong></td>
+<td>deadline</td>
+<td>SLO 기반</td>
+</tr>
+</tbody>
+</table>
+<h3 id="52-우리가-제안한-6-종-schedulers_slopy-meta_py-hrrn_slopy">5.2 우리가 제안한 6 종 (<code>schedulers/*_slo.py</code>, <code>meta_*.py</code>, <code>hrrn_slo.py</code>)</h3>
+<table>
+<thead>
+<tr class="header">
+<th>알고리즘</th>
+<th>기여</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>MetaSrtf</strong></td>
+<td>metadata predictor 로 oracle SRTF 와 동등 성능</td>
+</tr>
+<tr class="even">
+<td><strong>LasSlo / SrtfSlo / MetaSrtfSlo</strong></td>
+<td>bucket 으로 heavy contention starvation 회피</td>
+</tr>
+<tr class="odd">
+<td><strong>MetaLasSlo</strong></td>
+<td>MetaSrtfSlo 의 LAS 변형</td>
+</tr>
+<tr class="even">
+<td>🏆 <strong>HrrnSlo</strong></td>
+<td><strong>HRRN aging + SLO bucket</strong> 결합. Mixed workload headline (−12 ~ −50 %)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="53-시각-비교">5.3 시각 비교</h3>
+<p><img src="figures/algo_feature_matrix.png" alt="Algorithm feature matrix" /></p>
+<hr />
+<h2 id="-slide-6--핵심-알고리즘-①-hrrnslo-headline">🎯 Slide 6 — 핵심 알고리즘 ①: HrrnSlo (headline)</h2>
+<h3 id="61-직관">6.1 직관</h3>
+<p><strong>HRRN 의 핵심 통찰</strong>:</p>
+<ul>
+<li>응답률 R = (wait + service) / service</li>
+<li>wait 이 누적되거나 service 가 작으면 R 자동 증가 → <strong>점진적 priority boost</strong></li>
+<li>= "짧은 잡 우선" + "오래 기다린 잡 우선" 의 자연스러운 결합</li>
+</ul>
+<p><strong>SLO bucket 의 핵심 통찰</strong>:</p>
+<ul>
+<li>wait 이 SLO 임계를 넘긴 잡 = <strong>위험</strong> → 절대 우선</li>
+<li>HRRN 만 쓰면 매우 큰 잡 (&gt;5000 s) 이 한 번 도착하면 평생 R 작아 starve 위험</li>
+<li>Bucket 0 (critical) 는 safety net 역할</li>
+</ul>
+<p>→ <strong>HrrnSlo = HRRN aging + SLO bucket safety net</strong></p>
+<h3 id="62-알고리즘-정확히">6.2 알고리즘 (정확히)</h3>
+<pre class="python"><code># schedulers/hrrn_slo.py
+class HrrnSlo:
+    SLO_TARGET = 1500   # 초 (≈ workload p90 wait)
+    THETA      = 0.7    # warning zone 비율
+
+    def schedule(self, job_dict, ...):
+        now = self.current_time
+        warning = THETA * SLO_TARGET
+
+        for jid, job in job_dict.items():
+            wait    = max(0, now - job[&#39;submit_time&#39;])
+            service = max(1, job[&#39;total_iter&#39;] * job[&#39;per_iter_time&#39;])
+            R       = (wait + service) / service
+
+            if   wait &gt;= SLO_TARGET: bucket = 0   # critical
+            elif wait &gt;= warning:    bucket = 1   # warning
+            else:                    bucket = 2   # safe
+            job[&#39;score&#39;] = (bucket, -R)          # bucket 우선, R 큰 순
+
+        return sorted by (job[&#39;priority&#39;], job[&#39;score&#39;])</code></pre>
+<h3 id="63-디자인-결정-3-가지-각각-실패-모드-발견-후-수정">6.3 디자인 결정 3 가지 (각각 실패 모드 발견 후 수정)</h3>
+<table>
+<thead>
+<tr class="header">
+<th>결정</th>
+<th>이유</th>
+<th>실패 시나리오</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>모든 bucket 에서 secondary = -R</strong> (-wait 아님)</td>
+<td>bucket 0 도 HRRN ranking 유지</td>
+<td>-wait 쓰면 heavy 부하에서 대부분 잡이 bucket 0 trip → FIFO 회귀</td>
+</tr>
+<tr class="even">
+<td><strong>SLO = 1500 s</strong> (~p90 wait)</td>
+<td>sweet spot</td>
+<td>300~600 너무 작으면 over-trip / 3000+ 너무 크면 bucket 무력</td>
+</tr>
+<tr class="odd">
+<td><strong>service = total_iter × per_iter_time</strong> (trace 제공)</td>
+<td>추론·훈련 둘 다 작동</td>
+<td>추론 전용 metadata predictor 는 훈련 잡에 일반화 안 됨</td>
+</tr>
+</tbody>
+</table>
+<h3 id="64-결과">6.4 결과</h3>
+<table>
+<thead>
+<tr class="header">
+<th>Setup (ρ)</th>
+<th>FIFO</th>
+<th>HRRN</th>
+<th><strong>HrrnSlo</strong></th>
+<th>HRRN 단독 vs FIFO</th>
+<th><strong>HrrnSlo vs FIFO</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>2G load=10 (1.4×)</td>
+<td>1,331 s</td>
+<td>1,087 s</td>
+<td><strong>812 s</strong></td>
+<td>−18.3 %</td>
+<td><strong>−39.0 %</strong> 🏆</td>
+</tr>
+<tr class="even">
+<td>4G load=14 (1.4×)</td>
+<td>521 s</td>
+<td>485 s</td>
+<td><strong>458 s</strong></td>
+<td>−6.9 %</td>
+<td><strong>−12.0 %</strong> 🏆</td>
+</tr>
+<tr class="odd">
+<td>4G load=20 (2.0×)</td>
+<td>704 s</td>
+<td>646 s</td>
+<td><strong>524 s</strong></td>
+<td>−8.2 %</td>
+<td><strong>−25.6 %</strong> 🏆</td>
+</tr>
+<tr class="even">
+<td>4G load=25 (2.5×)</td>
+<td>3,152 s</td>
+<td>2,708 s</td>
+<td><strong>1,585 s</strong></td>
+<td>−14.1 %</td>
+<td><strong>−49.7 %</strong> 🏆</td>
+</tr>
+</tbody>
+</table>
+<p>→ <strong>HRRN 단독의 1.5 ~ 3.5× 증폭</strong>. 4 setup 모두 일관 → noise 가 아님.</p>
+<hr />
+<h2 id="-slide-7--핵심-알고리즘-②-submission-time-predictor-metasrtf">🎯 Slide 7 — 핵심 알고리즘 ②: Submission-time Predictor (MetaSrtf)</h2>
+<h3 id="71-motivation">7.1 motivation</h3>
+<ul>
+<li>SRTF 가 평균 JCT 이론 최적이지만 <strong>"잡 실행 시간"</strong> 이 필요 — production 에서는 사전에 모름</li>
+<li>우리: <strong>사용자가 API 호출 시 알려주는 metadata</strong> 만으로 실행 시간 추정 가능?</li>
+</ul>
+<h3 id="72-linear-regression-predictor-build_metadata_predictorpy">7.2 Linear Regression Predictor (<code>build_metadata_predictor.py</code>)</h3>
+<pre><code>predict(steps, imgs, plen, nlora, ptype, model) =
+    intercept + 0.186·steps + 0.376·imgs + ...
+              + one_hot(ptype) · θ_pt
+              + one_hot(model) · θ_m</code></pre>
+<ul>
+<li>Train: 잡 0–2999 / Test: 3000–26793</li>
+<li><strong>R² = 0.394, MAE = 9.24 s</strong> (category-mean baseline 대비 26 % 개선)</li>
+</ul>
+<h3 id="73-비교-더-복잡한-모델이-더-좋은가">7.3 비교: 더 복잡한 모델이 더 좋은가?</h3>
+<table>
+<thead>
+<tr class="header">
+<th>Model</th>
+<th>MAE</th>
+<th>R²</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Mean baseline</td>
+<td>12.86 s</td>
+<td>−0.08</td>
+</tr>
+<tr class="even">
+<td><strong>Linear regression</strong></td>
+<td><strong>9.24 s</strong></td>
+<td><strong>0.394</strong></td>
+</tr>
+<tr class="odd">
+<td>CatBoost (500 iter, depth=6)</td>
+<td>9.38 s</td>
+<td>0.361</td>
+</tr>
+<tr class="even">
+<td>LightGBM (500 iter, depth=6)</td>
+<td>9.54 s</td>
+<td>0.367</td>
+</tr>
+</tbody>
+</table>
+<p>→ <strong>단순한 linear 가 boosting tree 보다 좋음</strong>. R² 0.39 가 이 feature 의 ceiling — 더 풍부한 feature (GPU 종류, batch 정보) 가 필요할 뿐, ML 모델 복잡도 문제는 아님.</p>
+<h3 id="74-순수-추론에서의-성능-32">7.4 순수 추론에서의 성능 (§3.2)</h3>
+<table>
+<thead>
+<tr class="header">
+<th>Scheduler</th>
+<th>Avg JCT</th>
+<th>vs FIFO</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>MetaSrtf (제안)</strong></td>
+<td><strong>63.2 s</strong></td>
+<td><strong>−14 %</strong></td>
+</tr>
+<tr class="even">
+<td>SRTF (oracle)</td>
+<td>64.3 s</td>
+<td>−12.5 %</td>
+</tr>
+<tr class="odd">
+<td>FIFO</td>
+<td>73.5 s</td>
+<td>baseline</td>
+</tr>
+<tr class="even">
+<td>LAS</td>
+<td>112.7 s</td>
+<td>+53 %</td>
+</tr>
+</tbody>
+</table>
+<p>→ <strong>submission-time 정보만으로 Oracle SRTF 와 동등</strong>. Production 에서 실현 가능한 SRTF 의 alternative.</p>
+<hr />
+<h2 id="-slide-8--핵심-알고리즘-③-slo-bucket-mechanism">🎯 Slide 8 — 핵심 알고리즘 ③: SLO Bucket Mechanism</h2>
+<h3 id="81-왜-필요한가--open-system-starvation">8.1 왜 필요한가 — Open-system starvation</h3>
+<p>순수 추론, heavy load (ρ ≥ 2.6×) 에서 SRTF/LAS/MetaSrtf 모두 <strong>catastrophic 실패</strong> (3 분 timeout):</p>
+<pre><code>t       : 잡 X (100s) GPU 점유 중
+t+ε     : 새 짧은 잡 Y (12s) 도착
+SRTF    : Y 우선 → X preempt
+t+12    : Y 끝. 그러나 또 다른 짧은 Z 도착
+SRTF    : Z 우선 → X 또 preempt
+...     : X 영원히 못 끝남 (open system, 도착이 멈추지 않으므로)</code></pre>
+<p>이는 큐잉 이론의 고전 결과 — <strong>SRTF 는 closed batch 에서만 안전</strong>.</p>
+<h3 id="82-bucket-의-해법">8.2 Bucket 의 해법</h3>
+<pre><code>정렬 키 = (job.priority, bucket, secondary)
+
+bucket 0 (critical): wait ≥ SLO       → secondary = base algorithm
+bucket 1 (warning):  wait ≥ θ·SLO     → secondary = base algorithm
+bucket 2 (safe):     otherwise        → secondary = base algorithm</code></pre>
+<ul>
+<li>bucket 0 → bucket 1 → bucket 2 순으로 절대 우선</li>
+<li>잡이 임계 wait 에 도달하면 자동 bucket 0 승격 → 무한정 밀려나지 않음</li>
+<li>bucket 간 차이는 <strong>단순 threshold trigger</strong> 라 saturation 없음</li>
+</ul>
+<h3 id="83-효과--heavy-contention-에서-유일한-안전-옵션">8.3 효과 — Heavy contention 에서 유일한 안전 옵션</h3>
+<table>
+<thead>
+<tr class="header">
+<th>Setup (ρ)</th>
+<th>FIFO</th>
+<th>LAS</th>
+<th>SRTF</th>
+<th>MetaSrtf</th>
+<th><strong>SrtfSlo (ours)</strong></th>
+<th><strong>MetaSrtfSlo (ours)</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>1G load=200 (2.6×)</td>
+<td>5,534</td>
+<td>💀</td>
+<td>💀</td>
+<td>💀</td>
+<td><strong>5,534</strong></td>
+<td><strong>5,534</strong></td>
+</tr>
+<tr class="even">
+<td>2G load=400 (2.6×)</td>
+<td>2,636</td>
+<td>💀</td>
+<td>💀</td>
+<td>💀</td>
+<td><strong>2,636</strong></td>
+<td><strong>2,636</strong></td>
+</tr>
+</tbody>
+</table>
+<p>💀 = 3 분 timeout 후 강제 종료 (starvation).</p>
+<p>→ <strong>Bucket variants 만 모든 ρ 에서 안전</strong>. Mild 에서는 ~0 % overhead, heavy 에서는 유일 작동.</p>
+<hr />
+<h2 id="-slide-9--실험-종합--부하-강도별-권장">🎯 Slide 9 — 실험 종합 &amp; 부하 강도별 권장</h2>
+<h3 id="91-부하-강도ρ-가-알고리즘-ranking-을-완전히-바꾼다">9.1 부하 강도(ρ) 가 알고리즘 ranking 을 완전히 바꾼다</h3>
+<p><img src="figures/sweep_avg_by_setup.png" alt="Contention sweep" /></p>
+<table>
+<thead>
+<tr class="header">
+<th>ρ</th>
+<th>1 위</th>
+<th>2 위</th>
+<th>최악</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Mild (1.3×, 순수 추론)</td>
+<td>SRTF (−21 %)</td>
+<td>MetaSrtf (−15 %)</td>
+<td>LAS (+49 %)</td>
+</tr>
+<tr class="even">
+<td>Moderate (1.7×)</td>
+<td>MetaSrtf (−14 %)</td>
+<td>bucket variants</td>
+<td>LAS (+53 %)</td>
+</tr>
+<tr class="odd">
+<td>Heavy (≥2.6×, 순수 추론)</td>
+<td>bucket variants (안정)</td>
+<td>FIFO</td>
+<td>LAS/SRTF/MetaSrtf (💀 thrash)</td>
+</tr>
+<tr class="even">
+<td><strong>Mixed (CoV 2.5)</strong></td>
+<td>🏆 <strong>HrrnSlo (−12 ~ −50 %)</strong></td>
+<td>HRRN</td>
+<td>다른 모두</td>
+</tr>
+</tbody>
+</table>
+<h3 id="92-production-배포-가이드">9.2 Production 배포 가이드</h3>
+<table>
+<thead>
+<tr class="header">
+<th>워크로드</th>
+<th>추천</th>
+<th>근거</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>추론 + 훈련 혼합</strong> (production 현실)</td>
+<td>🏆 <strong>HrrnSlo</strong></td>
+<td>mixed 1 위, safe default</td>
+</tr>
+<tr class="even">
+<td>순수 추론 + mild ρ</td>
+<td>SRTF or MetaSrtf</td>
+<td>평균 −20 %</td>
+</tr>
+<tr class="odd">
+<td>순수 추론 + heavy ρ</td>
+<td>MetaSrtfSlo</td>
+<td>유일하게 안전</td>
+</tr>
+<tr class="even">
+<td>ρ 불확실</td>
+<td>HrrnSlo</td>
+<td>모든 환경에서 FIFO 이상</td>
+</tr>
+</tbody>
+</table>
+<p>→ LAS 는 어디서도 추천 아님.</p>
+<hr />
+<h2 id="-slide-10--정직한-한계--향후-과제">🎯 Slide 10 — 정직한 한계 &amp; 향후 과제</h2>
+<h3 id="한계">한계</h3>
+<table>
+<thead>
+<tr class="header">
+<th>한계</th>
+<th>영향</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>단일 trace</strong> (Alibaba GenAI)</td>
+<td>다른 trace (LLM serving 등) 검증 못 함</td>
+</tr>
+<tr class="even">
+<td><strong>단일 random seed</strong></td>
+<td>trace replay deterministic; statistical CI 없음</td>
+</tr>
+<tr class="odd">
+<td><strong>100~300 잡 sample</strong></td>
+<td>1~2 % 차이는 noise — but HrrnSlo의 −12~−50 % 는 noise margin 훨씬 상회</td>
+</tr>
+<tr class="even">
+<td><code>multigpu=False</code></td>
+<td>placement-aware 변형 미실험</td>
+</tr>
+<tr class="odd">
+<td>Preemption cost = 0</td>
+<td>실제 KV cache loss 무시</td>
+</tr>
+<tr class="even">
+<td>Mixed = 합성 (lognormal)</td>
+<td>실제 production training trace 와 분포 다를 수 있음</td>
+</tr>
+</tbody>
+</table>
+<h3 id="향후-과제">향후 과제</h3>
+<ol type="1">
+<li>다른 trace 로 일반화 검증 (LLM serving, video transcoding)</li>
+<li>Multi-seed × bootstrap CI 로 statistical significance 검증</li>
+<li>Preemption cost model 추가 (KV cache loss)</li>
+<li>Multi-GPU placement-aware 확장 (HrrnSlo × placement)</li>
+</ol>
+<hr />
+<h2 id="-slide-11--결론">🎯 Slide 11 — 결론</h2>
+<h3 id="우리가-한-것">우리가 한 것</h3>
+<ol type="1">
+<li><strong>5 weeks, 30+ 실험 wave</strong> — Blox 시뮬레이터 위에서 12 종 스케줄러 × 10+ 부하 시나리오 비교</li>
+<li><strong>6 종 신규 알고리즘 구현</strong> (LasSlo, SrtfSlo, MetaSrtf, MetaLasSlo, MetaSrtfSlo, <strong>HrrnSlo</strong>)</li>
+<li><strong>시뮬레이터 버그 발견 및 수정</strong> (<code>exponential=True</code> workload 라벨 버그 등)</li>
+<li><strong>체계적 분석 보고서 작성</strong> (<a href="report.md">report.md</a>, 540 lines)</li>
+</ol>
+<h3 id="핵심-contribution-4-가지">핵심 contribution 4 가지</h3>
+<table>
+<thead>
+<tr class="header">
+<th>#</th>
+<th>Contribution</th>
+<th>결과</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>🏆</td>
+<td><strong>HrrnSlo</strong> (HRRN aging + SLO bucket)</td>
+<td>Mixed workload 에서 FIFO 대비 −12 ~ −50 %</td>
+</tr>
+<tr class="even">
+<td>🥈</td>
+<td><strong>MetaSrtf</strong> (submission-time predictor)</td>
+<td>순수 추론에서 Oracle SRTF 와 동등 (−15 %)</td>
+</tr>
+<tr class="odd">
+<td>🛡️</td>
+<td><strong>SLO bucket variants</strong></td>
+<td>Heavy contention starvation 회피</td>
+</tr>
+<tr class="even">
+<td>📊</td>
+<td><strong>워크로드 × ρ 별 가이드</strong></td>
+<td>Production 배포 framework</td>
+</tr>
+</tbody>
+</table>
+<h3 id="학술적-의미">학술적 의미</h3>
+<ul>
+<li>HRRN (1968) 의 aging 통찰이 modern GPU 워크로드에서도 유효함을 보임</li>
+<li>"더 복잡한 ML 모델 ≠ 더 좋은 predictor" — feature 가 모델 복잡도보다 중요</li>
+<li>Open-system 의 SRTF starvation 을 bucket 으로 막는 단순한 패턴이 실험적으로 효과적</li>
+</ul>
+<h3 id="코드--보고서">코드 &amp; 보고서</h3>
+<ul>
+<li>GitHub: <a href="https://github.com/hyeonss0417/blox-simul-knee-slo">hyeonss0417/blox-simul-knee-slo</a></li>
+<li>상세 보고서: <a href="report.md">docs/report_v2/report.md</a> · <a href="report.html">report.html</a></li>
+<li>재현 방법: <a href="report.md">report.md §부록 C</a> 참조</li>
+</ul>
+<hr />
+<h2 id="-appendix-a--알고리즘-정렬-시각화">📎 Appendix A — 알고리즘 정렬 시각화</h2>
+<p>같은 큐 (J1 짧고 새, J2 짧고 오래, J3 중간, J4 크고 새, J5 SLO 초과) 를 각 알고리즘이 어떻게 다르게 정렬하는지:</p>
+<p><img src="figures/algo_ordering_demo.png" alt="Algorithm ordering" /></p>
+<ul>
+<li>FIFO: J5 → J2 → J3 → J1 → J4 (시간 순)</li>
+<li>SRTF: J1 → J2 → J3 → J5 → J4 (짧은 순)</li>
+<li><strong>Bucket 변형</strong>: J5 (critical) → J2 → J1 → ... (위험 잡 우선 + 짧은 잡)</li>
+</ul>
+<hr />
+<h2 id="-appendix-b--trace-변환-코드-build_mixed_tracepy">📎 Appendix B — Trace 변환 코드 (build_mixed_trace.py)</h2>
+<pre class="python"><code># 핵심 부분
+TRAINING_FRACTION = 0.20
+RNG = random.Random(42)
+
+def sample_training_duration():
+    &quot;&quot;&quot;log-normal mean ≈ 30분, range 10분~2시간.&quot;&quot;&quot;
+    mu, sigma = math.log(1800), 0.8
+    d = RNG.lognormvariate(mu, sigma)
+    return max(600, min(7200, d))
+
+for line in original_trace:
+    if RNG.random() &lt; TRAINING_FRACTION:
+        line[&#39;duration&#39;]      = sample_training_duration()
+        line[&#39;job_class_id&#39;]  = &#39;training_synthetic&#39;
+        line[&#39;total_iter&#39;]    = max(1, int(duration / 30))
+        line[&#39;per_iter_time&#39;] = duration / line[&#39;total_iter&#39;]
+    out.write(line)</code></pre>
+<p>→ 결과 trace <code>cluster_job_log_mixed</code>: CoV 2.46.</p>
+<hr />
+<h2 id="-appendix-c--실험-재현-1-분-quickstart">📎 Appendix C — 실험 재현 (1 분 quickstart)</h2>
+<pre class="bash"><code>source venv/bin/activate
+
+# 1) Mixed trace 생성
+python build_mixed_trace.py    # → cluster_job_log_mixed
+
+# 2) HrrnSlo headline 실험 (4 setup × 3 config = 12 runs, ~15분)
+bash run_hrrnslo.sh
+
+# 3) 결과 분석 + 그림
+python plot_hrrnslo_headline.py</code></pre>
+<p>상세: <a href="report.md">report.md §부록 C</a></p>
+
+</body></html>
