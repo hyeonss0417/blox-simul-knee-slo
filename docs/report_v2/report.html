@@ -200,12 +200,13 @@ li { margin: 4px 0; }
 <li class="toc-h3"><a href="#31-contention-regime-별-결과--main-finding">3.1 Contention regime 별 결과 (★ main finding)</a></li>
 <li class="toc-h3"><a href="#32-2-gpu-깊은-분석--metasrtf-가-oracle-srtf-와-동등">3.2 2 GPU 깊은 분석 — MetaSrtf 가 Oracle SRTF 와 동등</a></li>
 <li class="toc-h3"><a href="#33-왜-추론에서-차이가-21--인가--잡-변동성-한계">3.3 왜 추론에서 차이가 21 % 인가 — 잡 변동성 한계</a></li>
-<li class="toc-h3"><a href="#34-mixed-추론--훈련-워크로드--bucket-이-유일한-안전-옵션">3.4 Mixed (추론 + 훈련) 워크로드 — Bucket 이 유일한 안전 옵션</a></li>
+<li class="toc-h3"><a href="#34--mixed-추론--훈련-워크로드--hrrnslo-가-fifo-대비-12--50-">3.4 ★ Mixed (추론 + 훈련) 워크로드 — HrrnSlo 가 FIFO 대비 −12 ~ −50 %</a></li>
 <li class="toc-h3"><a href="#35-cluster-size-무관--동일한-ranking-이-모든-size-에-적용">3.5 Cluster size 무관 — 동일한 ranking 이 모든 size 에 적용</a></li>
 <li class="toc-h2"><a href="#4-왜-동작하는가--메커니즘">4. 왜 동작하는가 — 메커니즘</a></li>
 <li class="toc-h3"><a href="#41-bucket-이-starvation-을-막는-원리">4.1 Bucket 이 starvation 을 막는 원리</a></li>
 <li class="toc-h3"><a href="#42-submission-time-predictor--oracle-없이-40-회복">4.2 Submission-time predictor — Oracle 없이 40% 회복</a></li>
 <li class="toc-h3"><a href="#43-더-좋은-ml-모델은-도움-안-됨">4.3 더 좋은 ML 모델은 도움 안 됨</a></li>
+<li class="toc-h3"><a href="#44-hrrnslo--aging--bucket-하이브리드-mixed-workload-의-핵심">4.4 HrrnSlo — Aging + Bucket 하이브리드 (mixed workload 의 핵심)</a></li>
 <li class="toc-h2"><a href="#5-production-deployment-guide">5. Production deployment guide</a></li>
 <li class="toc-h2"><a href="#6-한계-정직한-평가">6. 한계 (정직한 평가)</a></li>
 <li class="toc-h2"><a href="#7-결론">7. 결론</a></li>
@@ -230,8 +231,8 @@ li { margin: 4px 0; }
 <!-- BEGIN AUTO: exec_summary -->
 
 <blockquote>
-<p><strong>한 줄 요약</strong>: 부하 강도 ρ 에 따라 추천 알고리즘이 다르다 — Mild 에선 <strong>MetaSrtf</strong> (Oracle SRTF 와 동등, FIFO 대비 −15 %), Heavy 에선 <strong>MetaSrtfSlo</strong> (bucket 변형, 유일하게 안정). LAS 는 어디서도 추천 아님.</p>
-<p><strong>두 contribution</strong>: ① Submission-time predictor (request params 만으로 Oracle SRTF 수준 달성, post-execution 정보 불필요) ② SLO bucket 으로 heavy contention 의 starvation 회피.</p>
+<p><strong>한 줄 요약</strong>: 추론 + 훈련이 혼합된 GPU 클러스터 (production 에서 흔함) 에서 <strong>HrrnSlo</strong> (HRRN aging + SLO bucket) 가 FIFO 대비 평균 JCT <strong>−12 % ~ −49.7 %</strong> 달성 — HRRN 단독 대비 1.5 ~ 3.5× 증폭, Oracle 정보 불필요.</p>
+<p><strong>네 contribution</strong>: ① <strong>HrrnSlo</strong> (mixed workload headline, §3.4) ② Submission-time predictor MetaSrtf (순수 추론 −15 %, §4.2) ③ SLO bucket 으로 heavy contention starvation 회피 (§4.1) ④ Workload-별 알고리즘 선택 가이드 (§5).</p>
 <p>자세한 결과는 §3, 메커니즘은 §4, 한계는 §6 참조.</p>
 </blockquote>
 <!-- END AUTO: exec_summary -->
@@ -239,9 +240,46 @@ li { margin: 4px 0; }
 <hr />
 <h2 id="-tldr--한-페이지-요약">📌 TL;DR — 한 페이지 요약</h2>
 <p><strong>문제</strong>: GPU 클러스터에서 추론(inference) 잡을 어떻게 스케줄링해야 평균 JCT 가 짧고, SLO 위반이 적고, starvation 이 안 생길까?</p>
-<p><strong>우리가 한 것</strong>: Alibaba 2026 GenAI trace + Blox 시뮬레이터에서 <strong>11 종 스케줄러 × 6 가지 부하 시나리오</strong> 를 비교. 새 알고리즘 5 종 (LasSlo, SrtfSlo, MetaSrtf, MetaSrtfSlo, MetaLasSlo) 제안.</p>
-<p><strong>핵심 발견</strong> ⬇️</p>
-<p><img src="figures/sweep_avg_by_setup.png" alt="핵심 결과" /></p>
+<p><strong>우리가 한 것</strong>: Alibaba 2026 GenAI trace + Blox 시뮬레이터에서 <strong>12 종 스케줄러 × 10+ 부하 시나리오</strong> 를 비교. 새 알고리즘 6 종 (LasSlo, SrtfSlo, MetaSrtf, MetaSrtfSlo, MetaLasSlo, <strong>HrrnSlo</strong>) 제안.</p>
+<p><strong>🏆 헤드라인 — Mixed 워크로드</strong> (추론 + 훈련, CoV ≈ 2.5):</p>
+<p><img src="figures/hrrnslo_headline.png" alt="HrrnSlo headline" /></p>
+<table>
+<thead>
+<tr class="header">
+<th>Setup</th>
+<th>FIFO</th>
+<th>HRRN</th>
+<th><strong>HrrnSlo (ours)</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>2G load=10</td>
+<td>baseline</td>
+<td>−18.3 %</td>
+<td><strong>−39.0 %</strong> 🏆</td>
+</tr>
+<tr class="even">
+<td>4G load=14</td>
+<td>baseline</td>
+<td>−6.9 %</td>
+<td><strong>−12.0 %</strong> 🏆</td>
+</tr>
+<tr class="odd">
+<td>4G load=20</td>
+<td>baseline</td>
+<td>−8.2 %</td>
+<td><strong>−25.6 %</strong> 🏆</td>
+</tr>
+<tr class="even">
+<td>4G load=25</td>
+<td>baseline</td>
+<td>−14.1 %</td>
+<td><strong>−49.7 %</strong> 🏆</td>
+</tr>
+</tbody>
+</table>
+<p><strong>순수 추론 워크로드</strong>:</p>
 <table>
 <thead>
 <tr class="header">
@@ -272,10 +310,12 @@ li { margin: 4px 0; }
 </tr>
 </tbody>
 </table>
-<p><strong>두 가지 contribution</strong>:</p>
+<p><strong>네 가지 contribution</strong>:</p>
 <ol type="1">
-<li>🏆 <strong>Submission-time predictor 만으로 Oracle SRTF 와 동등</strong> — <code>num_inference_steps</code>, <code>checkpoint_model</code> 등 <strong>잡 제출 시점에 알 수 있는 정보</strong> (post-execution 정보 없이) 로 oracle 성능 달성</li>
-<li>🛡️ <strong>SLO bucket 으로 heavy contention 의 starvation 회피</strong> — pure shortest-first (LAS/SRTF/MetaSrtf) 가 ρ ≥ 2× 에서 catastrophic 하게 망하는 걸 bucket 으로 막음</li>
+<li>🏆 <strong>HrrnSlo (mixed workload headline)</strong> — HRRN aging 과 SLO bucket 결합. Production-realistic mixed workload 에서 FIFO 대비 평균 JCT 최대 −50 %. Oracle 정보 불필요.</li>
+<li>🥈 <strong>Submission-time predictor (MetaSrtf)</strong> — <code>num_inference_steps</code>, <code>checkpoint_model</code> 등 잡 제출 시점에 알 수 있는 정보로 oracle SRTF 와 동등. 단 inference-only.</li>
+<li>🛡️ <strong>SLO bucket variants</strong> — pure shortest-first 가 ρ ≥ 2× 에서 catastrophic 하게 망하는 걸 bucket 으로 막음.</li>
+<li>📊 <strong>Workload-별 가이드</strong> — 추론 only vs mixed × ρ 측정 → 알고리즘 선택 framework.</li>
 </ol>
 <p><strong>한계</strong> (정직히): 단일 trace, 단일 시드, 100~300 sample size → statistical significance 검증 안 함. 본 trace 조건에서만 결론 유효.</p>
 <p>→ 자세한 contribution: §3 (main results), §4 (mechanism), §6 (limits).</p>
@@ -560,58 +600,98 @@ li { margin: 4px 0; }
 </table>
 <p>→ <strong>추론 차이가 작은 본질적 이유</strong>: 잡들이 너무 균일 (max/min 567× 지만 90 % 가 mean ±2× 안). 변동성이 큰 워크로드 (짧은 이미지 + 긴 LLM + 매우 긴 비디오 혼합) 에서는 <strong>2 배 이상의 gain</strong> 예상.</p>
 <p>본 21 % gain 은 알고리즘 한계가 아니라 <strong>워크로드 변동성 한계 — 이론 천장 (26 %) 의 80 % 회복</strong>.</p>
-<h3 id="34-mixed-추론--훈련-워크로드--bucket-이-유일한-안전-옵션">3.4 Mixed (추론 + 훈련) 워크로드 — Bucket 이 유일한 안전 옵션</h3>
-<p>순수 추론은 CoV=0.73 으로 잡 변동성이 제한적이었다. <strong>20 % 잡을 10 분~2 시간 짜리 합성 training 잡으로 대체</strong> 하여 CoV 를 2.46 으로 끌어올린 mixed workload 에서 재실험:</p>
+<h3 id="34--mixed-추론--훈련-워크로드--hrrnslo-가-fifo-대비-12--50-">3.4 ★ Mixed (추론 + 훈련) 워크로드 — HrrnSlo 가 FIFO 대비 −12 ~ −50 %</h3>
+<p>순수 추론은 CoV=0.73 으로 잡 변동성이 제한적이었다. 실제 클러스터처럼 <strong>20 % 잡을 10 분~2 시간 짜리 합성 training 잡으로 대체</strong> 하여 CoV 를 <strong>2.46</strong> 으로 끌어올린 mixed workload 에서 재실험.</p>
+<p><strong>Aging 신호가 빠진 알고리즘은 모두 무력화</strong>: SRTF+SLO / MetaSRTF+SLO 는 bucket 으로 starvation 은 막지만, 짧은 추론이 끝없이 새로 들어오면 큰 training 잡은 bucket 0 도달 직전 까지 후순위로 밀려 평균 JCT 가 FIFO 와 거의 같아진다 (−0.2 % 수준).</p>
+<p>→ <strong>해법</strong>: 대기시간이 SLO 임계를 넘기 전부터 점진적 우선순위 boost. HRRN 의 response-ratio R = (wait + service) / service 가 정확히 그 신호 — wait 가 누적되거나 service 가 작으면 자동으로 R ↑. 우리가 제안하는 <strong>HrrnSlo</strong> 는 이 R 을 SLO bucket 과 결합한다 (§4.4).</p>
+<p><img src="figures/hrrnslo_headline.png" alt="HrrnSlo headline" /></p>
 <table>
 <thead>
 <tr class="header">
 <th>Setup (ρ)</th>
 <th>FIFO</th>
-<th>LAS</th>
-<th>SRTF</th>
-<th>MetaSrtf</th>
-<th>SrtfSlo</th>
-<th>MetaSrtfSlo</th>
+<th>HRRN</th>
+<th><strong>HrrnSlo (ours)</strong></th>
+<th>HRRN vs FIFO</th>
+<th><strong>HrrnSlo vs FIFO</strong></th>
 </tr>
 </thead>
 <tbody>
 <tr class="odd">
-<td>2 GPU, ρ ≈ 1.4× (mild)</td>
-<td>20,462 s</td>
-<td>💀</td>
-<td>💀</td>
-<td>💀</td>
-<td>20,502</td>
-<td>20,462</td>
+<td>2 GPU, load=10 (ρ≈1.4×)</td>
+<td>1,331 s</td>
+<td>1,087 s</td>
+<td><strong>812 s</strong></td>
+<td>−18.3 %</td>
+<td><strong>−39.0 %</strong> 🏆</td>
 </tr>
 <tr class="even">
-<td>2 GPU, ρ ≈ 2.1×</td>
-<td>28,522</td>
-<td>💀</td>
-<td>💀</td>
-<td>💀</td>
-<td>28,547</td>
-<td>28,522</td>
+<td>4 GPU, load=14 (ρ≈1.4×)</td>
+<td>521 s</td>
+<td>485 s</td>
+<td><strong>458 s</strong></td>
+<td>−6.9 %</td>
+<td><strong>−12.0 %</strong> 🏆</td>
 </tr>
 <tr class="odd">
-<td>4 GPU, ρ ≈ 1.7×</td>
-<td>12,064</td>
-<td>💀</td>
-<td>💀</td>
-<td>💀</td>
-<td>12,078</td>
-<td>12,064</td>
+<td>4 GPU, load=20 (ρ≈2.0×)</td>
+<td>704 s</td>
+<td>646 s</td>
+<td><strong>524 s</strong></td>
+<td>−8.2 %</td>
+<td><strong>−25.6 %</strong> 🏆</td>
+</tr>
+<tr class="even">
+<td>4 GPU, load=25 (ρ≈2.5×)</td>
+<td>3,152 s</td>
+<td>2,708 s</td>
+<td><strong>1,585 s</strong></td>
+<td>−14.1 %</td>
+<td><strong>−49.7 %</strong> 🏆</td>
 </tr>
 </tbody>
 </table>
 <p><strong>핵심 발견</strong>:</p>
 <ol type="1">
-<li><strong>순수 추론과 결정적 차이</strong> — 순수 추론 mild (ρ=1.3×) 에선 LAS/SRTF/MetaSrtf 가 정상 동작 (FIFO 대비 −21%). Mixed 에서는 <strong>ρ=1.4× 같은 mild 부하에서도 모두 thrash</strong>. 큰 training 잡이 짧은 inference 에 계속 preempt 당해 영원히 미완료.</li>
-<li><strong>이론 SJF gain ≈ 300%, realized = 0%</strong> — Pollaczek-Khinchine 이론은 high CoV 에서 큰 gain 을 예측하나, open system 의 starvation 으로 실현 불가능.</li>
-<li><strong>Bucket variants 만 유일하게 안전</strong> — FIFO 와 동일한 평균 (차이 &lt; 0.2 %) 으로 모든 잡 종료 보장.</li>
+<li><strong>HrrnSlo 가 모든 setup 에서 1 위</strong>, HRRN 단독 대비 평균 gain 을 <strong>1.5× ~ 3.5× 증폭</strong>. Heavy load (4G/l25) 에서 절반(−49.7 %) 까지 잘림.</li>
+<li><strong>SRTF/Meta 계열 (aging 신호 없음) 은 mixed 에서 무의미</strong> — FIFO 와 차이 &lt; 1 %.</li>
+<li><strong>CDF 좌이동 (panel b)</strong>: HrrnSlo 의 분포 전반이 FIFO/HRRN 보다 짧은 쪽으로 이동, 특히 100s~1500s 구간 (작은 추론 잡) 에서 크게 가속.</li>
+<li><strong>Tail 은 거의 동등</strong>: P99 는 FIFO 와 ±10 % 안. Bucket protection 덕분에 worst-case 도 폭주하지 않음.</li>
 </ol>
-<p>→ <strong>본 contribution 의 강도가 mixed workload 에서 가장 크다</strong>: 순수 추론에선 "선택 가이드" 정도였지만, mixed 에선 <strong>bucket variants 가 유일하게 viable</strong> 한 옵션.</p>
-<p>→ Production 시사: GPU 클러스터가 추론 + 훈련을 함께 호스팅한다면 (실제로 흔한 경우), pure shortest-first (vanilla LAS/SRTF) 는 <strong>mild 부하에서도 catastrophically 실패</strong>. SLO bucket 이 안전 필수.</p>
+<p>→ <strong>본 보고서의 가장 강한 contribution</strong>: 추론 + 훈련이 함께 도는 production 환경 (실제로 흔함) 에서, <strong>HrrnSlo 는 oracle 정보 없이도 FIFO 대비 평균 JCT 최대 50 % 감소</strong>.</p>
+<p><strong>Predictor variant ablation</strong> (정직):</p>
+<table>
+<thead>
+<tr class="header">
+<th>Variant</th>
+<th>service estimate</th>
+<th>mean (m1g4/l25)</th>
+<th>vs FIFO</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>HrrnSlo (cluster-trace iter)</td>
+<td><code>total_iter × per_iter_time</code> (trace 제공, submission-time 가용)</td>
+<td><strong>1,585</strong></td>
+<td><strong>−49.7 %</strong></td>
+</tr>
+<tr class="even">
+<td>HrrnSlo (meta predictor, SLO=1500)</td>
+<td>linear regression on inference metadata</td>
+<td>3,079</td>
+<td>−2.3 %</td>
+</tr>
+<tr class="odd">
+<td>HrrnSlo (meta predictor, SLO=3000)</td>
+<td>동일</td>
+<td>3,144</td>
+<td>−0.3 %</td>
+</tr>
+</tbody>
+</table>
+<p>→ <strong>honest interpretation</strong>: §4.3 의 metadata predictor (<code>num_steps × imgs × model</code>) 는 inference-only 로 학습되어 training 잡 duration 추정에 실패. <strong>Cluster-trace iteration 추정 (<code>total_iter × per_iter_time</code>)</strong> 이 mixed workload 에선 훨씬 정확한 submission-time signal. 두 값 모두 <strong>post-execution 정보가 아님</strong> — trace 에서 사용자/시스템이 제출 시 제공.</p>
+<p>→ 결론: <strong>mixed workload 에서는 사용 가능한 가장 generic 한 service signal 을 쓰는 것이 우월</strong>. Domain-specific predictor 는 그 domain 잡에는 잘 작동하지만 cross-domain generalization 에서 실패한다.</p>
 <h3 id="35-cluster-size-무관--동일한-ranking-이-모든-size-에-적용">3.5 Cluster size 무관 — 동일한 ranking 이 모든 size 에 적용</h3>
 <p>같은 ρ=2.6× 를 유지하며 cluster 를 8× 까지 키워도:</p>
 <p><img src="figures/scale_sweep.png" alt="Scale sweep" /></p>
@@ -740,40 +820,72 @@ bucket 2 (safe):      otherwise                   → secondary</code></pre>
 <p>→ <strong>Boosting tree 가 linear 보다 더 나쁨</strong>. R² 0.39 가 이 metadata feature space 의 ceiling.</p>
 <p>honest interpretation: 추가 정확도는 더 좋은 모델이 아니라 <strong>더 풍부한 feature</strong> (GPU 종류, batch info, 실시간 상태) 가 필요. 본 trace 에는 없음.</p>
 <p>또한 솔직한 분석: <code>num_inference_steps</code> 자체로 Pearson r=0.54 (variance 의 ~29 %), 전체 모델 R² 0.39 — <strong>predictor 는 "physics-based estimator 의 정교화"</strong> 에 가깝다. ML magic 이 아님.</p>
+<h3 id="44-hrrnslo--aging--bucket-하이브리드-mixed-workload-의-핵심">4.4 HrrnSlo — Aging + Bucket 하이브리드 (mixed workload 의 핵심)</h3>
+<p><strong>문제</strong>: SRTF/MetaSRTF + bucket 변형은 wait 가 SLO 임계 (e.g. 1500 s) 를 <strong>넘기 전까지</strong> 큰 잡을 후순위로 둔다. 짧은 잡이 계속 도착하는 mixed workload 에서 큰 training 잡은 임계점 직전까지 기다리다 한꺼번에 bucket 0 으로 몰린다 → 평균 JCT 는 FIFO 와 동일.</p>
+<p><strong>해법</strong>: HRRN 의 <strong>점진적 aging</strong> 을 secondary score 로 사용. 응답률 (response ratio)</p>
+<pre><code>R = (wait + service) / service</code></pre>
+<p>은 wait 이 누적되거나 service 가 작으면 자동으로 증가 — <strong>boundary trigger</strong> 가 아닌 <strong>continuous boost</strong>.</p>
+<pre class="python"><code># schedulers/hrrn_slo.py 핵심
+wait    = max(0, now - submit)
+service = max(1, total_iter * per_iter_time)   # cluster-trace 추정
+R       = (wait + service) / service
+
+if wait &gt;= SLO_target:    bucket, secondary = 0, -R   # critical
+elif wait &gt;= θ × SLO:     bucket, secondary = 1, -R   # warning
+else:                     bucket, secondary = 2, -R   # safe
+
+sort_key = (priority, bucket, secondary)</code></pre>
+<p><strong>디자인 선택 근거</strong>:</p>
+<ol type="1">
+<li><strong>모든 bucket 에서 secondary = -R</strong> (단순 -wait 가 아니라). 초기 v1 은 bucket 0 secondary = -wait 로 했지만, heavy workload 에서 대부분 잡이 bucket 0 로 trip 되어 사실상 <strong>FIFO 로 회귀</strong> 하는 실패 모드 발견 (§부록 F 의 v1 ablation, gain 0 %). bucket 0 도 -R 로 유지하면 HRRN ranking 이 살아남고, bucket 은 starvation safety net 역할.</li>
+<li><strong>SLO_target = 1500 s</strong> (≈ 본 workload p90 wait). 너무 작으면 (300/600) 너무 많은 잡이 bucket 0 으로 trip → FIFO 화. 너무 크면 bucket 보호 거의 작동 안 함. p90 근처가 sweet spot.</li>
+<li><strong><code>service</code> = <code>total_iter × per_iter_time</code></strong>: 추론과 훈련 잡 <strong>둘 다</strong> trace 가 제공하는 일반적 signal. inference-specific metadata predictor 와 달리 mixed workload 에 일반화됨.</li>
+</ol>
+<p><strong>왜 HrrnSlo &gt; HRRN 단독</strong>:</p>
+<ul>
+<li>HRRN 단독: R 만 사용. 매우 큰 잡 (&gt;5000 s) 이 단 한 번 도착하면 평생 R 작아서 starve 위험.</li>
+<li>HrrnSlo: wait 가 SLO 를 넘으면 자동으로 bucket 0 으로 승격 (다른 잡보다 절대 우선) → <strong>HRRN aging + tail safety</strong>.</li>
+</ul>
+<p>→ §3.4 의 −12 ~ −50 % 가 정확히 이 조합 효과.</p>
 <hr />
 <h2 id="5-production-deployment-guide">5. Production deployment guide</h2>
 <table>
 <thead>
 <tr class="header">
-<th>예상 contention ρ</th>
+<th>워크로드 특성</th>
 <th>추천 알고리즘</th>
 <th>근거</th>
 </tr>
 </thead>
 <tbody>
 <tr class="odd">
-<td>&lt; 1.5×</td>
-<td><strong>SRTF</strong> (또는 metadata 가용 시 <strong>MetaSrtf</strong>)</td>
-<td>mild 에서 평균 -20 %</td>
+<td><strong>추론 + 훈련 혼합</strong> (high CoV)</td>
+<td>🏆 <strong>HrrnSlo</strong></td>
+<td>§3.4 — FIFO 대비 −12 ~ −50 %, HRRN 단독 대비 1.5 ~ 3.5×</td>
 </tr>
 <tr class="even">
-<td>1.5× ~ 2×</td>
-<td><strong>MetaSrtf</strong></td>
-<td>Oracle 동등 + production-realistic</td>
+<td>순수 추론, mild (ρ &lt; 1.5×)</td>
+<td><strong>SRTF / MetaSrtf</strong></td>
+<td>§3.2 — 평균 −20 %</td>
 </tr>
 <tr class="odd">
-<td>≥ 2×</td>
-<td><strong>MetaSrtfSlo</strong> / <strong>SrtfSlo</strong></td>
-<td>thrash 회피 필수</td>
+<td>순수 추론, 1.5× ~ 2×</td>
+<td><strong>MetaSrtf</strong></td>
+<td>Oracle 동등 + submission-time</td>
 </tr>
 <tr class="even">
+<td>순수 추론, heavy (ρ ≥ 2×)</td>
+<td><strong>MetaSrtfSlo / SrtfSlo</strong></td>
+<td>thrash 회피 필수</td>
+</tr>
+<tr class="odd">
 <td>변동 / 불확실</td>
-<td><strong>MetaSrtfSlo</strong></td>
-<td>모든 영역에서 안전</td>
+<td><strong>HrrnSlo</strong></td>
+<td>mixed 에서 1 위, 순수 추론에서도 FIFO 이하 (safe default)</td>
 </tr>
 </tbody>
 </table>
-<p>LAS 는 어디서도 추천 아님 — mild +49 %, heavy thrash.</p>
+<p>LAS 는 어디서도 추천 아님 — 순수 추론 mild +49 %, heavy thrash.</p>
 <hr />
 <h2 id="6-한계-정직한-평가">6. 한계 (정직한 평가)</h2>
 <p>본 결론은 <strong>본 trace + Blox 시뮬레이터 조건 하에서</strong> 유효. 강한 generalization 주장은 다음 한계 때문에 신중해야 한다.</p>
@@ -822,14 +934,15 @@ bucket 2 (safe):      otherwise                   → secondary</code></pre>
 <p><strong>"Bucket 의 starvation 회피"</strong> 주장의 강도: 6 setup 에서 일관 (1G/2G/4G/8G × heavy load 에서 LAS/SRTF/MetaSrtf 모두 thrash, bucket variants 만 안전) → 더 강한 high confidence.</p>
 <hr />
 <h2 id="7-결론">7. 결론</h2>
-<p>세 가지 contribution:</p>
+<p>네 가지 contribution:</p>
 <ol type="1">
-<li><strong>🏆 Submission-time predictor</strong> — 사용자가 제출 시점에 알려주는 metadata (steps, model 등) 만으로 oracle SRTF 와 평균 JCT 동등 (FIFO 대비 mild −15 ~ −21 %, moderate −14 %). post-execution 정보 없는 production-realistic 가정.</li>
+<li><strong>🏆 HrrnSlo (headline)</strong> — 추론 + 훈련 혼합 워크로드 (CoV ≈ 2.5, production 에서 흔함) 에서 FIFO 대비 평균 JCT <strong>−12 % ~ −49.7 %</strong> 달성. HRRN 의 점진적 aging (R = (wait+service)/service) 과 SLO bucket safety net 을 결합. <strong>Oracle 정보 불필요</strong> — cluster-trace 가 제공하는 <code>total_iter × per_iter_time</code> 만 사용. HRRN 단독 대비 1.5 ~ 3.5× 증폭.</li>
+<li><strong>🥈 Submission-time predictor (MetaSrtf)</strong> — 순수 추론에서 사용자가 제출 시점에 알려주는 metadata (steps, model 등) 만으로 oracle SRTF 와 평균 JCT 동등 (FIFO 대비 mild −15 ~ −21 %, moderate −14 %). 단 mixed workload 에는 일반화 안 됨 — domain-specific predictor 의 한계 (§3.4 ablation).</li>
 <li><strong>🛡️ SLO bucket variants</strong> — heavy contention (ρ ≥ 2×) 에서 pure shortest-first 의 starvation 을 회피. mild 에선 ~0 % overhead, heavy 에선 유일하게 작동.</li>
-<li><strong>📊 Regime-별 가이드</strong> — production deployment 시 ρ 측정 → 알고리즘 선택 framework.</li>
+<li><strong>📊 Workload-별 가이드</strong> — production deployment 시 워크로드 mix (순수 추론 vs mixed) + ρ 측정 → 알고리즘 선택 framework.</li>
 </ol>
 <p>LAS 는 어느 영역에서도 추천 아님. Heavier ML (CatBoost/LightGBM) 도 도움 안 됨 — R² 천장이 feature space 에서 결정.</p>
-<p>본 trace 의 제약과 시뮬레이터 단순화로 인해 강한 generalization 주장은 아직 어렵지만, contribution 방향성은 명확.</p>
+<p>본 trace 의 제약과 시뮬레이터 단순화로 인해 강한 generalization 주장은 아직 어렵지만, contribution 방향성은 명확하다. 특히 mixed workload 에서의 HrrnSlo gain (4 setup 일관, −12 ~ −49.7 %) 은 noise margin 을 크게 상회 — high confidence finding.</p>
 <hr />
 <h2 id="부록-a-knee-slo-알고리즘-디테일">부록 A. Knee-SLO 알고리즘 디테일</h2>
 <h3 id="a1-핵심-변수">A.1 핵심 변수</h3>

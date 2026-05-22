@@ -17,3 +17,4 @@ from .las_slo import *
 from .srtf_slo import *
 from .meta_pred import *
 from .meta_srtf_slo import *
+from .hrrn_slo import *

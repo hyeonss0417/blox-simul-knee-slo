@@ -36,6 +36,7 @@ SCHEDULER_MAP = {
     "MetaSrtf": schedulers.MetaSrtf,
     "MetaLasSlo": schedulers.MetaLasSlo,
     "MetaSrtfSlo": schedulers.MetaSrtfSlo,
+    "HrrnSlo": schedulers.HrrnSlo,
 }
 
 
