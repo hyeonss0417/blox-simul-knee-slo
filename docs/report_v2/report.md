@@ -304,42 +304,170 @@ honest interpretation: 추가 정확도는 더 좋은 모델이 아니라 **더 
 
 또한 솔직한 분석: `num_inference_steps` 자체로 Pearson r=0.54 (variance 의 ~29 %), 전체 모델 R² 0.39 — **predictor 는 "physics-based estimator 의 정교화"** 에 가깝다. ML magic 이 아님.
 
-### 4.4 HrrnSlo — Aging + Bucket 하이브리드 (mixed workload 의 핵심)
+### 4.4 ★ HrrnSlo — Aging × Bucket 하이브리드 (headline 알고리즘 심층)
 
-**문제**: SRTF/MetaSRTF + bucket 변형은 wait 가 SLO 임계 (e.g. 1500 s) 를 **넘기 전까지** 큰 잡을 후순위로 둔다. 짧은 잡이 계속 도착하는 mixed workload 에서 큰 training 잡은 임계점 직전까지 기다리다 한꺼번에 bucket 0 으로 몰린다 → 평균 JCT 는 FIFO 와 동일.
+본 절은 보고서의 가장 중요한 알고리즘이므로 깊이 다룬다. (직관 → HRRN 의 통찰 → 한계 → bucket 결합 → 정확한 의사코드 → 디자인 결정 → worked example → 복잡도)
 
-**해법**: HRRN 의 **점진적 aging** 을 secondary score 로 사용. 응답률 (response ratio)
+#### 4.4.1 출발: 스케줄링 문제 본질
+
+매 round (10 s) 마다 queue 에 쌓인 N 개 잡 중 어떤 잡을 GPU 에 실행할지 결정. 본질적으로 **각 잡에 점수 부여 후 정렬**. 점수 만드는 방식이 알고리즘 정체성.
+
+| 알고리즘 | score (작을수록 우선) | 신호 |
+| -------- | --------------------- | ---- |
+| FIFO | `submit_time` | 도착 시간 |
+| SRTF | `remaining_service` | 남은 실행 시간 (oracle) |
+| LAS | `attained_service` | 받은 실행 시간 |
+| HRRN | `−R` | **응답률 R** |
+
+#### 4.4.2 HRRN 의 응답률 R = (wait + service) / service
+
+**해석 ①**: "내가 받게 될 latency 가 내 service 의 몇 배인가"
+- 막 도착해 즉시 실행 → R = 1.0 (이상적)
+- service 와 같은 시간 기다림 → R = 2.0
+- service 10 배 기다림 → R = 11.0 (매우 억울)
+
+**해석 ②**: R = 1 + wait/service 로 분해 — **두 효과 동시 포함**:
+1. **Aging** — 같은 잡이라도 wait 누적되면 R ↑ (FIFO 공평성)
+2. **Short-job bias** — 같은 wait 라도 service 작으면 R ↑ (SRTF 효율)
+
+이게 HRRN (1968 년 Brinch Hansen 제안) 의 magic — 단일 metric 으로 두 목표 달성.
+
+#### 4.4.3 HRRN 단독의 결정적 한계 — 긴 잡의 aging 이 너무 느림
+
+R = 1 + wait/service. **service 가 크면 wait 가 많이 누적되어야 R 이 의미 있게 증가**.
+
+| 잡 | service | wait | R |
+| -- | ------- | ---- | -- |
+| 짧은 추론 A | 30 s | 0 s | 1.000 |
+| 짧은 추론 B | 30 s | 90 s | **4.000** |
+| 긴 훈련 X | 5000 s | 0 s | 1.000 |
+| 긴 훈련 X (1500 s 대기 후) | 5000 s | 1500 s | 1.30 |
+
+X 가 25 분 기다려도 R = 1.30. 반면 새 추론이 도착해 90 초만 기다리면 R = 4.0 → X 는 영원히 새로 도착하는 짧은 잡에 밀린다 (open system 의 고전적 starvation).
+
+#### 4.4.4 SLO bucket 의 역할 — 위험 zone 에서 hard cliff
+
+연속적 R 위에 **이산 bucket** 추가:
 
 ```
-R = (wait + service) / service
+정렬 키 = (job_priority, bucket, secondary)    ← lexicographic
+
+bucket 2 (safe):    wait < 0.7·SLO          → 평소
+bucket 1 (warning): 0.7·SLO ≤ wait < SLO    → 경계
+bucket 0 (critical): wait ≥ SLO             → 절대 우선
 ```
 
-은 wait 이 누적되거나 service 가 작으면 자동으로 증가 — **boundary trigger** 가 아닌 **continuous boost**.
+bucket 0 > bucket 1 > bucket 2 우선. 잡이 SLO target (1500 s) 만큼 기다리면 자동 bucket 0 승격 → starvation 불가능. bucket 내부 정렬은 `−R` 로 HRRN ranking 유지.
+
+#### 4.4.5 정확한 알고리즘
 
 ```python
-# schedulers/hrrn_slo.py 핵심
-wait    = max(0, now - submit)
-service = max(1, total_iter * per_iter_time)   # cluster-trace 추정
-R       = (wait + service) / service
+# schedulers/hrrn_slo.py 전체 핵심
+class HrrnSlo(SchedulingPolicy):
+    def __init__(self, args):
+        self.slo_target = 1500.0   # 초
+        self.theta      = 0.7
+        self.current_time = 0      # run_scheduler 가 매 round 주입
 
-if wait >= SLO_target:    bucket, secondary = 0, -R   # critical
-elif wait >= θ × SLO:     bucket, secondary = 1, -R   # warning
-else:                     bucket, secondary = 2, -R   # safe
+    def schedule(self, job_dict, cluster_state, gpu_df):
+        now     = float(self.current_time)
+        warning = self.theta * self.slo_target
 
-sort_key = (priority, bucket, secondary)
+        for jid, job in job_dict.items():
+            wait    = max(0.0, now - job["submit_time"])
+            service = max(1.0, job["job_total_iteration"]
+                              * job["job_iteration_time"])
+            R       = (wait + service) / service
+
+            if   wait >= self.slo_target: bucket = 0
+            elif wait >= warning:         bucket = 1
+            else:                         bucket = 2
+
+            job["hrrn_slo_score"] = (bucket, -R)
+
+        sorted_order = sorted(
+            job_dict.items(),
+            key=lambda x: (x[1]["job_priority"], x[1]["hrrn_slo_score"])
+        )
+        return {"job_order": sorted_order, "run_all_jobs": False}
 ```
 
-**디자인 선택 근거**:
+#### 4.4.6 디자인 결정 — 각각 v1 실패 후 확정
 
-1. **모든 bucket 에서 secondary = -R** (단순 -wait 가 아니라). 초기 v1 은 bucket 0 secondary = -wait 로 했지만, heavy workload 에서 대부분 잡이 bucket 0 로 trip 되어 사실상 **FIFO 로 회귀** 하는 실패 모드 발견 (§부록 F 의 v1 ablation, gain 0 %). bucket 0 도 -R 로 유지하면 HRRN ranking 이 살아남고, bucket 은 starvation safety net 역할.
-2. **SLO_target = 1500 s** (≈ 본 workload p90 wait). 너무 작으면 (300/600) 너무 많은 잡이 bucket 0 으로 trip → FIFO 화. 너무 크면 bucket 보호 거의 작동 안 함. p90 근처가 sweet spot.
-3. **`service` = `total_iter × per_iter_time`**: 추론과 훈련 잡 **둘 다** trace 가 제공하는 일반적 signal. inference-specific metadata predictor 와 달리 mixed workload 에 일반화됨.
+**결정 1: 모든 bucket 에서 secondary = `−R` (단순 `−wait` 아님)**
 
-**왜 HrrnSlo > HRRN 단독**:
-- HRRN 단독: R 만 사용. 매우 큰 잡 (>5000 s) 이 단 한 번 도착하면 평생 R 작아서 starve 위험.
-- HrrnSlo: wait 가 SLO 를 넘으면 자동으로 bucket 0 으로 승격 (다른 잡보다 절대 우선) → **HRRN aging + tail safety**.
+| Variant | bucket 0 secondary | m1g4/l25 결과 |
+| ------- | ------------------ | -------------- |
+| v1 (실패) | `−wait` (most overdue first) | **0%** (FIFO 회귀) |
+| **v2 (현재)** | `−R` (HRRN ranking 유지) | **−49.7%** 🏆 |
 
-→ §3.4 의 −12 ~ −50 % 가 정확히 이 조합 효과.
+heavy load 에서 p99 wait ≈ 10,000 s, SLO 1500 → 거의 모든 잡이 bucket 0 trip → bucket 안 −wait 정렬은 = FIFO. HRRN R 신호가 죽음. v2 는 bucket 0 안에서도 HRRN ranking 살림. **이 한 줄 변경이 0% → −50% 차이**.
+
+**결정 2: SLO_TARGET = 1500 s (≈ workload p90 wait)**
+
+m1g4/l25 ablation:
+
+| SLO_TARGET | vs FIFO | 진단 |
+| ---------- | ------- | ---- |
+| 300 s | 0% | 거의 모든 잡 bucket 0 trip → FIFO 화 |
+| 600 s | 0% | 동일 |
+| **1500 s** | **−49.7%** 🏆 | sweet spot |
+| 3000 s | −0.3% | bucket 보호 작동 안 함 → HRRN 단독 ≈ |
+
+→ p90 wait 시간 근처가 sweet spot. 상위 10% 의 위험 잡만 bucket 0 진입.
+
+**결정 3: `service = total_iter × per_iter_time` (cluster-trace) — inference predictor 아님**
+
+| 방법 | 추론 잡 | 훈련 잡 | mixed (m1g4/l25) |
+| ---- | ------- | ------- | ------------------- |
+| Metadata predictor (linear regression) | 정확 (R² 0.39) | **무의미** (`num_steps` 누락) | −2.3% |
+| **Cluster-trace `total_iter × per_iter_time`** | 합리적 | **합리적** | **−49.7%** 🏆 |
+
+→ Inference-only 학습 predictor 는 training 잡에 일반화 안 됨. 가장 generic 한 submission-time signal 이 우월. 두 모두 oracle 아님 (사용자 / trace 가 제출 시 제공).
+
+#### 4.4.7 Worked example — 시간에 따른 X 의 rank 변화
+
+시나리오: 긴 훈련 잡 X (service = 5000 s) 가 t=0 도착, 매 100 s 마다 짧은 추론 Y_k (service = 30 s) 도착.
+
+![Worked example](figures/hrrnslo_walkthrough.png)
+
+**Panel (a)** — X 의 scheduling rank (낮을수록 곧 실행) 시간 변화:
+
+| 알고리즘 | t < 1500 s | t ≥ 1500 s | 의미 |
+| -------- | ---------- | ---------- | ---- |
+| FIFO | rank 1 (항상) | rank 1 | X 가 모든 짧은 잡 차단 (head-of-line blocking) |
+| HRRN | rank 4–6 | rank 4–6 | aging 부족 — X 영원히 짧은 Y 에 밀림 |
+| SRTF+SLO | rank 4–6 | rank 4–6 | bucket 안 service 정렬 → X (가장 큼) 마지막 |
+| 🏆 **HrrnSlo** | rank 4–6 (HRRN 과 동일) | **rank 1 (절대 우선)** | t=1500 에 bucket 0 진입 → 즉시 실행 |
+
+**Panel (b)** — X 의 R 곡선:
+
+- 0 ~ 3000 s 사이 R 이 1.0 → 1.60 까지 **천천히 증가** (slope = 1/5000 = 0.0002 per second)
+- R 만으로는 X 가 짧은 Y 에 못 이김 (Y 가 100 s 기다리면 R_Y ≈ 4.33)
+- 1500 s 의 bucket cliff 가 protection 의 핵심
+
+→ HrrnSlo = "평소 HRRN aging (짧은 + 오래 기다린 잡 favor)" + "위험시 bucket cliff (절대 우선)"
+
+#### 4.4.8 복잡도 / Overhead
+
+| 항목 | HrrnSlo | 다른 모든 알고리즘 |
+| ---- | ------- | ------------------ |
+| Time per round | O(N log N) 정렬 | O(N log N) |
+| 상태 저장 | 0 | 0 |
+| 학습 / training | 0 | MetaSrtf 만 offline 학습 |
+| 메모리 | O(N) | O(N) |
+
+→ 추가 cost 없음. 기존 인프라 그대로.
+
+#### 4.4.9 왜 HRRN 단독의 1.5 ~ 3.5× 증폭이 가능한가
+
+- HRRN 단독: 큰 잡 X 가 영원히 starve → max 잡 JCT 가 매우 큼 → 평균 끌어올림
+- HrrnSlo: X 가 최대 1500 s 만 기다리면 강제 실행 → max JCT 가 cap 됨 → 평균 압축
+- 4 setup 일관, 노이즈 영역 (±2%) 훨씬 상회 → high confidence
+
+#### 4.4.10 한 줄 요약
+
+> **HrrnSlo = HRRN aging 이 평소엔 짧은 잡과 오래 기다린 잡을 함께 favor, wait 가 SLO 임계를 넘기면 bucket cliff 가 발동해 절대 우선 — 평소 효율 + 위험시 안전.**
 
 ---
 
