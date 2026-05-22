@@ -21,6 +21,7 @@ ALGOS = [
     ("metasrtf",    "MetaSrtf",     "#27ae60"),
     ("srtfslo",     "SrtfSlo",      "#16a085"),
     ("metasrtfslo", "MetaSrtfSlo",  "#0d3b66"),
+    ("hrrnslo",     "HrrnSlo ★ours","#dc2626"),
 ]
 
 

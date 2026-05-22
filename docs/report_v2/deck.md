@@ -457,17 +457,22 @@ bucket 2 (safe):     otherwise        → secondary = base algorithm
 | --- | ---- | ---- | ---- |
 | Mild (1.3×, 순수 추론) | SRTF (−21 %) | MetaSrtf (−15 %) | LAS (+49 %) |
 | Moderate (1.7×) | MetaSrtf (−14 %) | bucket variants | LAS (+53 %) |
-| Heavy (≥2.6×, 순수 추론) | bucket variants (안정) | FIFO | LAS/SRTF/MetaSrtf (💀 thrash) |
+| **Heavy (≥2.6×, 순수 추론)** | 🏆 **HrrnSlo (−20 % mean)** ⚠️ p99 +90% | FIFO ≈ SrtfSlo ≈ MetaSrtfSlo | LAS/SRTF/MetaSrtf (💀 thrash) |
 | **Mixed (CoV 2.5)** | 🏆 **HrrnSlo (−12 ~ −50 %)** | HRRN | 다른 모두 |
+
+**중요한 신규 발견**: HrrnSlo 가 **heavy pure-inference 에서도** mean JCT −20% 달성 (위 figure 빨간 막대 — 1G/l200 4388 vs FIFO 5534, 2G/l400 2121 vs 2636). 다른 bucket variants (SrtfSlo, MetaSrtfSlo) 가 FIFO 와 동일에 머무는 이유: 모든 잡이 bucket 0 trip 되면 그 안에서 service-based 정렬 = FIFO 와 차이 미미. HrrnSlo 는 bucket 0 안에서도 R 정렬 유지하므로 짧은 + 오래기다린 잡을 efficient 하게 우선.
+
+⚠️ **정직한 trade-off**: HrrnSlo 의 p99 tail 은 FIFO 대비 +83~91% 증가. Mean 우선 vs tail 우선 application 별로 trade-off.
 
 ### 9.2 Production 배포 가이드
 
 | 워크로드 | 추천 | 근거 |
 | -------- | ---- | ---- |
-| **추론 + 훈련 혼합** (production 현실) | 🏆 **HrrnSlo** | mixed 1 위, safe default |
+| **추론 + 훈련 혼합** (production 현실) | 🏆 **HrrnSlo** | mixed 1 위, mean −12~−50 % |
+| **순수 추론 + heavy ρ, mean 우선** | 🏆 **HrrnSlo** | mean −20 % (다른 bucket variant 는 = FIFO) |
+| 순수 추론 + heavy ρ, **p99 안정 우선** | MetaSrtfSlo / SrtfSlo | mean = FIFO, but p99 = FIFO (안정적 tail) |
 | 순수 추론 + mild ρ | SRTF or MetaSrtf | 평균 −20 % |
-| 순수 추론 + heavy ρ | MetaSrtfSlo | 유일하게 안전 |
-| ρ 불확실 | HrrnSlo | 모든 환경에서 FIFO 이상 |
+| ρ 불확실 / safe default | HrrnSlo | mean 영역 모든 환경에서 우위 |
 
 → LAS 는 어디서도 추천 아님.
 

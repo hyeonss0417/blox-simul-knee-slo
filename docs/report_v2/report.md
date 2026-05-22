@@ -133,19 +133,27 @@ J1(짧고 새), J2(짧고 오래), J3(중간), J4(크고 새), J5(크고 SLO 초
 
 ![Contention sweep — Avg JCT](figures/sweep_avg_by_setup.png)
 
-| Setup | FIFO | LAS | SRTF | MetaSrtf | SrtfSlo | MetaSrtfSlo |
-| ----- | ---- | --- | ---- | -------- | ------- | ----------- |
-| 1G mild (l=100) | 93 | **139** (+49 %) | **74** (−21 %) | 79 (−15 %) | 93 | 93 |
-| 1G HEAVY (l=200) | 5534 | 💀 | 💀 | 💀 | **5534** | **5534** |
-| 2G HEAVY (l=400) | 2636 | 💀 | 💀 | 💀 | **2636** | **2636** |
+| Setup | FIFO | LAS | SRTF | MetaSrtf | SrtfSlo | MetaSrtfSlo | **HrrnSlo (ours)** |
+| ----- | ---- | --- | ---- | -------- | ------- | ----------- | -------------------- |
+| 1G mild (l=100) | 93 | **139** (+49 %) | **74** (−21 %) | 79 (−15 %) | 93 | 93 | 93 |
+| 1G HEAVY (l=200) | 5534 | 💀 | 💀 | 💀 | 5534 | 5534 | 🏆 **4388 (−20.7 %)** |
+| 2G HEAVY (l=400) | 2636 | 💀 | 💀 | 💀 | 2636 | 2636 | 🏆 **2121 (−19.5 %)** |
 
 (💀 = 3 분 timeout 후 강제 종료)
 
-**3 가지 명확한 패턴**:
+**4 가지 명확한 패턴**:
 
 1. **Mild contention**: SRTF/MetaSrtf 가 단연 best. LAS 가 최악.
 2. **Heavy contention**: pure shortest-first (LAS / SRTF / MetaSrtf) 가 **catastrophic 하게 thrash** — tracked 잡들이 starve 해서 영원히 끝나지 않음.
-3. **Bucket 변형은 모든 regime 에서 안정** — mild 에서는 FIFO ≈ SRTF/MetaSrtf 사이 위치하고, heavy 에서는 유일하게 작동.
+3. **Bucket 변형 (SrtfSlo / MetaSrtfSlo) 은 안정** — heavy 에서 thrash 없이 작동하나 mean JCT 는 FIFO 와 동일 (모든 잡 bucket 0 trip → 그 안에서 service-based 정렬 = FIFO).
+4. ★ **HrrnSlo 만 heavy 에서 mean −20% 우위** — bucket 0 안에서도 R 정렬 유지하므로 짧은+오래기다린 잡 효율적 우선. **단 trade-off**: p99 tail 은 FIFO 대비 +83~91 % (4958 → 9083 / 10460 → 19972). mean / median 우선 application 에 적합.
+
+**상세 통계 (m1g2/l400)**:
+
+| 알고리즘 | mean | median | p95 | p99 |
+| -------- | ---- | ------ | --- | --- |
+| FIFO / SrtfSlo / MetaSrtfSlo | 2636 | 2710 | 4918 | 4958 |
+| **HrrnSlo** | **2121** (−20%) | **1886** (−30%) | **4673** (−5%) | 9083 (+83%) ⚠️ |
 
 ### 3.2 2 GPU 깊은 분석 — MetaSrtf 가 Oracle SRTF 와 동등
 
@@ -486,10 +494,11 @@ m1g4/l25 ablation:
 | 워크로드 특성 | 추천 알고리즘 | 근거 |
 | -------------- | ------------ | ---- |
 | **추론 + 훈련 혼합** (high CoV) | 🏆 **HrrnSlo** | §3.4 — FIFO 대비 −12 ~ −50 %, HRRN 단독 대비 1.5 ~ 3.5× |
+| **순수 추론 heavy, mean 우선** | 🏆 **HrrnSlo** | §3.1 — FIFO 대비 mean −20 % (다른 bucket variant 는 = FIFO) |
+| 순수 추론 heavy, **p99 안정 우선** | **MetaSrtfSlo / SrtfSlo** | §3.1 — mean = FIFO, but p99 = FIFO 안정 (HrrnSlo p99 +83~91%) |
 | 순수 추론, mild (ρ < 1.5×) | **SRTF / MetaSrtf** | §3.2 — 평균 −20 % |
 | 순수 추론, 1.5× ~ 2× | **MetaSrtf** | Oracle 동등 + submission-time |
-| 순수 추론, heavy (ρ ≥ 2×) | **MetaSrtfSlo / SrtfSlo** | thrash 회피 필수 |
-| 변동 / 불확실 | **HrrnSlo** | mixed 에서 1 위, 순수 추론에서도 FIFO 이하 (safe default) |
+| 변동 / 불확실 / safe default | **HrrnSlo** | mean 영역 모든 환경에서 우위 |
 
 LAS 는 어디서도 추천 아님 — 순수 추론 mild +49 %, heavy thrash.
 

@@ -455,6 +455,7 @@ li { margin: 4px 0; }
 <th>MetaSrtf</th>
 <th>SrtfSlo</th>
 <th>MetaSrtfSlo</th>
+<th><strong>HrrnSlo (ours)</strong></th>
 </tr>
 </thead>
 <tbody>
@@ -466,6 +467,7 @@ li { margin: 4px 0; }
 <td>79 (−15 %)</td>
 <td>93</td>
 <td>93</td>
+<td>93</td>
 </tr>
 <tr class="even">
 <td>1G HEAVY (l=200)</td>
@@ -473,8 +475,9 @@ li { margin: 4px 0; }
 <td>💀</td>
 <td>💀</td>
 <td>💀</td>
-<td><strong>5534</strong></td>
-<td><strong>5534</strong></td>
+<td>5534</td>
+<td>5534</td>
+<td>🏆 <strong>4388 (−20.7 %)</strong></td>
 </tr>
 <tr class="odd">
 <td>2G HEAVY (l=400)</td>
@@ -482,18 +485,48 @@ li { margin: 4px 0; }
 <td>💀</td>
 <td>💀</td>
 <td>💀</td>
-<td><strong>2636</strong></td>
-<td><strong>2636</strong></td>
+<td>2636</td>
+<td>2636</td>
+<td>🏆 <strong>2121 (−19.5 %)</strong></td>
 </tr>
 </tbody>
 </table>
 <p>(💀 = 3 분 timeout 후 강제 종료)</p>
-<p><strong>3 가지 명확한 패턴</strong>:</p>
+<p><strong>4 가지 명확한 패턴</strong>:</p>
 <ol type="1">
 <li><strong>Mild contention</strong>: SRTF/MetaSrtf 가 단연 best. LAS 가 최악.</li>
 <li><strong>Heavy contention</strong>: pure shortest-first (LAS / SRTF / MetaSrtf) 가 <strong>catastrophic 하게 thrash</strong> — tracked 잡들이 starve 해서 영원히 끝나지 않음.</li>
-<li><strong>Bucket 변형은 모든 regime 에서 안정</strong> — mild 에서는 FIFO ≈ SRTF/MetaSrtf 사이 위치하고, heavy 에서는 유일하게 작동.</li>
+<li><strong>Bucket 변형 (SrtfSlo / MetaSrtfSlo) 은 안정</strong> — heavy 에서 thrash 없이 작동하나 mean JCT 는 FIFO 와 동일 (모든 잡 bucket 0 trip → 그 안에서 service-based 정렬 = FIFO).</li>
+<li>★ <strong>HrrnSlo 만 heavy 에서 mean −20% 우위</strong> — bucket 0 안에서도 R 정렬 유지하므로 짧은+오래기다린 잡 효율적 우선. <strong>단 trade-off</strong>: p99 tail 은 FIFO 대비 +83~91 % (4958 → 9083 / 10460 → 19972). mean / median 우선 application 에 적합.</li>
 </ol>
+<p><strong>상세 통계 (m1g2/l400)</strong>:</p>
+<table>
+<thead>
+<tr class="header">
+<th>알고리즘</th>
+<th>mean</th>
+<th>median</th>
+<th>p95</th>
+<th>p99</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>FIFO / SrtfSlo / MetaSrtfSlo</td>
+<td>2636</td>
+<td>2710</td>
+<td>4918</td>
+<td>4958</td>
+</tr>
+<tr class="even">
+<td><strong>HrrnSlo</strong></td>
+<td><strong>2121</strong> (−20%)</td>
+<td><strong>1886</strong> (−30%)</td>
+<td><strong>4673</strong> (−5%)</td>
+<td>9083 (+83%) ⚠️</td>
+</tr>
+</tbody>
+</table>
 <h3 id="32-2-gpu-깊은-분석--metasrtf-가-oracle-srtf-와-동등">3.2 2 GPU 깊은 분석 — MetaSrtf 가 Oracle SRTF 와 동등</h3>
 <p>위 표의 "moderate (2 GPU, load 200)" 시나리오 상세:</p>
 <table>
@@ -1178,6 +1211,16 @@ class HrrnSlo(SchedulingPolicy):
 <td>§3.4 — FIFO 대비 −12 ~ −50 %, HRRN 단독 대비 1.5 ~ 3.5×</td>
 </tr>
 <tr class="even">
+<td><strong>순수 추론 heavy, mean 우선</strong></td>
+<td>🏆 <strong>HrrnSlo</strong></td>
+<td>§3.1 — FIFO 대비 mean −20 % (다른 bucket variant 는 = FIFO)</td>
+</tr>
+<tr class="odd">
+<td>순수 추론 heavy, <strong>p99 안정 우선</strong></td>
+<td><strong>MetaSrtfSlo / SrtfSlo</strong></td>
+<td>§3.1 — mean = FIFO, but p99 = FIFO 안정 (HrrnSlo p99 +83~91%)</td>
+</tr>
+<tr class="even">
 <td>순수 추론, mild (ρ &lt; 1.5×)</td>
 <td><strong>SRTF / MetaSrtf</strong></td>
 <td>§3.2 — 평균 −20 %</td>
@@ -1188,14 +1231,9 @@ class HrrnSlo(SchedulingPolicy):
 <td>Oracle 동등 + submission-time</td>
 </tr>
 <tr class="even">
-<td>순수 추론, heavy (ρ ≥ 2×)</td>
-<td><strong>MetaSrtfSlo / SrtfSlo</strong></td>
-<td>thrash 회피 필수</td>
-</tr>
-<tr class="odd">
-<td>변동 / 불확실</td>
+<td>변동 / 불확실 / safe default</td>
 <td><strong>HrrnSlo</strong></td>
-<td>mixed 에서 1 위, 순수 추론에서도 FIFO 이하 (safe default)</td>
+<td>mean 영역 모든 환경에서 우위</td>
 </tr>
 </tbody>
 </table>

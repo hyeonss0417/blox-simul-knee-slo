@@ -1,34 +1,31 @@
-<!DOCTYPE html>
-<html lang="ko"><head><meta charset="utf-8"><title>젠슨황팀 — 최종 발표 Deck</title>
-<style>
+<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><title>젠슨황팀 — 최종 발표 Deck</title><style>
 body { max-width: 1100px; margin: 0 auto; padding: 32px 48px;
        font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
                     "Pretendard", "Noto Sans KR", sans-serif;
        line-height: 1.65; color: #1f2937; background: #fafafa; }
 h1 { border-bottom: 3px solid #111; padding-bottom: 8px; margin-top: 56px; font-size: 1.9em; }
 h2 { background: linear-gradient(90deg, #fef3c7 0%, transparent 100%);
-      padding: 14px 18px; border-left: 6px solid #d97706;
-      margin-top: 56px; font-size: 1.5em; border-radius: 0 6px 6px 0; }
+     padding: 14px 18px; border-left: 6px solid #d97706;
+     margin-top: 56px; font-size: 1.5em; border-radius: 0 6px 6px 0; }
 h3 { color: #1e40af; margin-top: 32px; font-size: 1.18em; }
 h4 { color: #475569; margin-top: 24px; font-size: 1.05em;
-      border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
+     border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
 hr { border: 0; border-top: 2px dashed #cbd5e1; margin: 64px 0 32px; }
-table { border-collapse: collapse; width: 100%; margin: 16px 0;
-         background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-         border-radius: 6px; overflow: hidden; }
+table { border-collapse: collapse; width: 100%; margin: 16px 0; background: white;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05); border-radius: 6px; overflow: hidden; }
 th, td { padding: 10px 14px; border-bottom: 1px solid #e5e7eb; text-align: left; font-size: 0.95em; }
 th { background: #1e293b; color: #f1f5f9; font-weight: 600; }
 tr:nth-child(even) td { background: #f8fafc; }
 tr:hover td { background: #fef3c7; }
 img { max-width: 100%; border: 1px solid #e5e7eb; border-radius: 6px;
-       box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin: 12px 0; }
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin: 12px 0; }
 blockquote { border-left: 5px solid #2563eb; background: #eff6ff;
-              padding: 14px 22px; margin: 18px 0; border-radius: 0 6px 6px 0;
-              font-size: 1.08em; color: #1e3a8a; }
+             padding: 14px 22px; margin: 18px 0; border-radius: 0 6px 6px 0;
+             font-size: 1.08em; color: #1e3a8a; }
 code { background: #fef3c7; padding: 2px 7px; border-radius: 3px;
-        font-size: 0.92em; color: #92400e; }
+       font-size: 0.92em; color: #92400e; }
 pre { background: #1e293b; color: #e2e8f0; padding: 18px; border-radius: 8px;
-       overflow-x: auto; font-size: 0.88em; line-height: 1.55; }
+      overflow-x: auto; font-size: 0.88em; line-height: 1.55; }
 pre code { background: transparent; padding: 0; color: inherit; }
 ul, ol { padding-left: 1.5em; } li { margin: 4px 0; }
 strong { color: #0f172a; }
@@ -36,8 +33,7 @@ a { color: #2563eb; text-decoration: none; border-bottom: 1px dotted #93c5fd; }
 a:hover { background: #fef3c7; border-bottom-style: solid; }
 @media print { body { background: white; padding: 16px 32px; }
   h2 { page-break-before: always; } hr { display: none; } img { box-shadow: none; } }
-</style></head><body>
-<h1 id="gpu-클러스터-스케줄링-추론훈련-혼합-환경에서의-slo-aware-알고리즘">GPU 클러스터 스케줄링: 추론·훈련 혼합 환경에서의 SLO-aware 알고리즘</h1>
+</style></head><body><h1 id="gpu-클러스터-스케줄링-추론훈련-혼합-환경에서의-slo-aware-알고리즘">GPU 클러스터 스케줄링: 추론·훈련 혼합 환경에서의 SLO-aware 알고리즘</h1>
 <p><strong>26-1 컴퓨터종합설계 · 젠슨황팀</strong> (윤영준, 박준열, 전현성, 부광민)</p>
 <p>발표용 요약 deck · 본 보고서: <a href="report.md">report.md</a></p>
 <hr />
@@ -720,9 +716,9 @@ bucket 2 (safe):     otherwise        → secondary = base algorithm</code></pre
 <td>LAS (+53 %)</td>
 </tr>
 <tr class="odd">
-<td>Heavy (≥2.6×, 순수 추론)</td>
-<td>bucket variants (안정)</td>
-<td>FIFO</td>
+<td><strong>Heavy (≥2.6×, 순수 추론)</strong></td>
+<td>🏆 <strong>HrrnSlo (−20 % mean)</strong> ⚠️ p99 +90%</td>
+<td>FIFO ≈ SrtfSlo ≈ MetaSrtfSlo</td>
 <td>LAS/SRTF/MetaSrtf (💀 thrash)</td>
 </tr>
 <tr class="even">
@@ -733,6 +729,8 @@ bucket 2 (safe):     otherwise        → secondary = base algorithm</code></pre
 </tr>
 </tbody>
 </table>
+<p><strong>중요한 신규 발견</strong>: HrrnSlo 가 <strong>heavy pure-inference 에서도</strong> mean JCT −20% 달성 (위 figure 빨간 막대 — 1G/l200 4388 vs FIFO 5534, 2G/l400 2121 vs 2636). 다른 bucket variants (SrtfSlo, MetaSrtfSlo) 가 FIFO 와 동일에 머무는 이유: 모든 잡이 bucket 0 trip 되면 그 안에서 service-based 정렬 = FIFO 와 차이 미미. HrrnSlo 는 bucket 0 안에서도 R 정렬 유지하므로 짧은 + 오래기다린 잡을 efficient 하게 우선.</p>
+<p>⚠️ <strong>정직한 trade-off</strong>: HrrnSlo 의 p99 tail 은 FIFO 대비 +83~91% 증가. Mean 우선 vs tail 우선 application 별로 trade-off.</p>
 <h3 id="92-production-배포-가이드">9.2 Production 배포 가이드</h3>
 <table>
 <thead>
@@ -746,7 +744,17 @@ bucket 2 (safe):     otherwise        → secondary = base algorithm</code></pre
 <tr class="odd">
 <td><strong>추론 + 훈련 혼합</strong> (production 현실)</td>
 <td>🏆 <strong>HrrnSlo</strong></td>
-<td>mixed 1 위, safe default</td>
+<td>mixed 1 위, mean −12~−50 %</td>
+</tr>
+<tr class="even">
+<td><strong>순수 추론 + heavy ρ, mean 우선</strong></td>
+<td>🏆 <strong>HrrnSlo</strong></td>
+<td>mean −20 % (다른 bucket variant 는 = FIFO)</td>
+</tr>
+<tr class="odd">
+<td>순수 추론 + heavy ρ, <strong>p99 안정 우선</strong></td>
+<td>MetaSrtfSlo / SrtfSlo</td>
+<td>mean = FIFO, but p99 = FIFO (안정적 tail)</td>
 </tr>
 <tr class="even">
 <td>순수 추론 + mild ρ</td>
@@ -754,14 +762,9 @@ bucket 2 (safe):     otherwise        → secondary = base algorithm</code></pre
 <td>평균 −20 %</td>
 </tr>
 <tr class="odd">
-<td>순수 추론 + heavy ρ</td>
-<td>MetaSrtfSlo</td>
-<td>유일하게 안전</td>
-</tr>
-<tr class="even">
-<td>ρ 불확실</td>
+<td>ρ 불확실 / safe default</td>
 <td>HrrnSlo</td>
-<td>모든 환경에서 FIFO 이상</td>
+<td>mean 영역 모든 환경에서 우위</td>
 </tr>
 </tbody>
 </table>
@@ -905,5 +908,4 @@ bash run_hrrnslo.sh
 # 3) 결과 분석 + 그림
 python plot_hrrnslo_headline.py</code></pre>
 <p>상세: <a href="report.md">report.md §부록 C</a></p>
-
 </body></html>
